@@ -1,0 +1,77 @@
+name: muster
+version: 1.0.0
+description: >-
+  Air-traffic control for delegated subagent fleets. A live ledger of every child
+  agent Hermes spawns — observed from the subagent/LLM/tool/kanban observer hooks —
+  shown in a Desktop pane, a status-bar chip, a dashboard tab, and a /muster command.
+  Distinguishes RUNNING from STALLED (no API or tool event for a configurable window,
+  in-flight tools exempt), flags LOST children after a gateway death (no subagent_stop
+  was ever fired), raises a SPINNING alarm when the same goal keeps failing with
+  rate-limited requeues core records as neutral, tracks per-child tokens from
+  post_api_request usage, and lets the agent or the user fan out supervised children
+  with muster_fanout — those come with real cancel/steer buttons backed by the public
+  SubagentLifecycle API. Read-only observation by default; writes nothing outside its
+  own plugin-data ledger; no network, no telemetry, no secrets, no dependencies.
+manifest_version: 2
+api_version: 1
+requires_hermes: ">=0.22.5"
+license: MIT
+homepage: https://github.com/jollyroger1480/muster
+tags: [delegation, subagents, observability, desktop, kanban, fleet]
+python_dependencies: []
+config_schema:
+  stall_seconds:
+    type: int
+    default: 300
+    label: Stall threshold (seconds)
+    description: >-
+      A RUNNING child with no API or tool event for this long shows STALLED.
+      An in-flight tool call exempts the child. 300 = 5 minutes.
+  spin_threshold:
+    type: int
+    default: 3
+    label: Spin alarm threshold
+    description: Failed/rate-limited terminal outcomes for the same goal within the
+      spin window that trip the SPINNING alarm.
+  spin_window_seconds:
+    type: int
+    default: 1800
+    label: Spin window (seconds)
+    description: Sliding window for spin-alarm strikes (default 30 minutes).
+  show_goals:
+    type: bool
+    default: true
+    label: Show child goals
+    description: >-
+      Show the (80-char-truncated) goal text in the pane, chip tooltip and /muster.
+      Turn off in shared-screen environments; ids and roles stay visible.
+  board_rows:
+    type: int
+    default: 120
+    label: Board rows
+    description: Maximum flight rows returned by the board API and /muster table.
+  chip_enabled:
+    type: bool
+    default: true
+    label: Show status-bar chip
+    description: The muster chip in the Desktop status bar (run/stall/lost counts).
+capabilities: []
+provides_tools:
+  - muster_fanout
+  - muster_status
+provides_hooks:
+  - subagent_start
+  - subagent_stop
+  - pre_tool_call
+  - post_tool_call
+  - pre_api_request
+  - post_api_request
+  - api_request_error
+  - pre_auxiliary_call
+  - post_auxiliary_call
+  - on_session_finalize
+  - kanban_task_claimed
+  - kanban_task_completed
+  - kanban_task_blocked
+  - on_kanban_worker_exited
+requires_env: []

@@ -1,0 +1,13 @@
+[project]
+name = "muster"
+version = "1.0.0"
+description = "Air-traffic control for delegated subagent fleets — live ledger, stall/lost/spin detection, Desktop pane, lifecycle actions."
+requires-python = ">=3.11"
+dependencies = []
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = []

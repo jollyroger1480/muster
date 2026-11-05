@@ -1,0 +1,14 @@
+{
+  "name": "muster",
+  "label": "Muster",
+  "description": "Air-traffic control for delegated subagent fleets — live fleet board, stall/lost/spin alarms, cancel and steer.",
+  "icon": "Radar",
+  "version": "1.0.0",
+  "tab": {
+    "path": "/muster",
+    "position": "after:skills"
+  },
+  "slots": [],
+  "entry": "dist/index.js",
+  "api": "plugin_api.py"
+}
