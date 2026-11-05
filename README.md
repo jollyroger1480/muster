@@ -154,7 +154,7 @@ hermes plugins install muster
 ## Development
 
 ```bash
-python -m pytest tests/ -q        # 28 unit tests (incl. review regressions), no Hermes needed
+python -m pytest tests/ -q        # 29 unit tests (incl. review regressions), no Hermes needed
 ```
 
 License: MIT.

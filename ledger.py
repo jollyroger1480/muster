@@ -339,16 +339,16 @@ class Ledger:
             # their own ids, so one match attempt on child_session_id plus a
             # fallback match on parent_session_id covers both shapes.
             self._submit(lambda conn: conn.execute(
-                f"UPDATE flights SET {', '.join(sets)} WHERE child_session_id = :sid AND state IN ('PENDING','STARTING','RUNNING','STALLED','SPINNING')",
+                f"UPDATE flights SET {', '.join(sets)} WHERE child_session_id = :sid AND state IN ('PENDING','STARTING','RUNNING','STALLED','SPINNING','CANCEL_REQUESTED')",
                 params,
             ))
             self._submit(lambda conn: conn.execute(
-                f"UPDATE flights SET {', '.join(sets)} WHERE parent_session_id = :sid AND kind = 'aux' AND state IN ('PENDING','STARTING','RUNNING','STALLED','SPINNING')",
+                f"UPDATE flights SET {', '.join(sets)} WHERE parent_session_id = :sid AND kind = 'aux' AND state IN ('PENDING','STARTING','RUNNING','STALLED','SPINNING','CANCEL_REQUESTED')",
                 params,
             ))
         else:
             self._submit(lambda conn: conn.execute(
-                f"UPDATE flights SET {', '.join(sets)} WHERE child_session_id = :sid AND state IN ('PENDING','STARTING','RUNNING','STALLED','SPINNING')",
+                f"UPDATE flights SET {', '.join(sets)} WHERE child_session_id = :sid AND state IN ('PENDING','STARTING','RUNNING','STALLED','SPINNING','CANCEL_REQUESTED')",
                 params,
             ))
 
@@ -411,7 +411,7 @@ class Ledger:
             return [
                 dict(r) for r in conn.execute(
                     "SELECT * FROM flights WHERE kind = 'flight' "
-                    "AND state IN ('PENDING','STARTING','RUNNING','STALLED','SPINNING') "
+                    "AND state IN ('PENDING','STARTING','RUNNING','STALLED','SPINNING','CANCEL_REQUESTED') "
                     "ORDER BY COALESCE(last_event_at, started_at, updated_at) DESC"
                 )
             ]
@@ -427,12 +427,12 @@ class Ledger:
         def _op(conn: sqlite3.Connection) -> None:
             conn.execute(
                 "UPDATE flights SET state = 'LOST', ended_at = :now, exit_reason = 'process_died', updated_at = :now "
-                "WHERE kind = 'flight' AND state IN ('PENDING','STARTING','RUNNING','STALLED','SPINNING')",
+                "WHERE kind = 'flight' AND state IN ('PENDING','STARTING','RUNNING','STALLED','SPINNING','CANCEL_REQUESTED')",
                 {"now": now},
             )
             conn.execute(
                 "UPDATE flights SET state = 'ENDED', ended_at = :now, updated_at = :now "
-                "WHERE kind = 'aux' AND state IN ('PENDING','STARTING','RUNNING','STALLED','SPINNING')",
+                "WHERE kind = 'aux' AND state IN ('PENDING','STARTING','RUNNING','STALLED','SPINNING','CANCEL_REQUESTED')",
                 {"now": now},
             )
 
@@ -464,7 +464,7 @@ class Ledger:
             flights = [
                 dict(r) for r in conn.execute(
                     "SELECT * FROM flights WHERE kind = 'flight' "
-                    "ORDER BY (state IN ('PENDING','STARTING','RUNNING','STALLED','SPINNING')) DESC, "
+                    "ORDER BY (state IN ('PENDING','STARTING','RUNNING','STALLED','SPINNING','CANCEL_REQUESTED')) DESC, "
                     "COALESCE(last_event_at, started_at, updated_at) DESC LIMIT :lim",
                     {"lim": _coerce_int(limit)},
                 )

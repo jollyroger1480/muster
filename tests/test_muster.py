@@ -554,6 +554,26 @@ def muster_fleet_compact(board):
     return _compact_board(board, show_goals=True)
 
 
+def test_cancelled_row_settles_without_ghost(ctx):
+    """Cancel → settle: the stop event must resolve the CANCEL_REQUESTED row
+    itself. A ghost row here means the fleet shows two rows for one child."""
+    service = FakeService()
+    ctx2 = FakeCtx(service=service)
+    muster.register(ctx2)
+    ops = muster._REGISTERED[0]["ops"]
+    out = json.loads(ctx2.tools["muster_fanout"]["handler"]({"goals": ["settle me"]}))
+    fid = out["launched"][0]["flight_id"]
+    ctx2.hooks["subagent_start"](parent_session_id="parent-1", child_session_id="c-set",
+                                 child_subagent_id="s-set", child_role="leaf", child_goal="settle me")
+    ctx2.commands["muster"](f"cancel {fid[:8]}")
+    ctx2.hooks["subagent_stop"](parent_session_id="parent-1", child_session_id="c-set",
+                                child_role="leaf", status="cancelled")
+    board = ops.ledger.board()
+    rows = [f for f in board["flights"] if f["goal"] == "settle me"]
+    assert len(rows) == 1, f"ghost row created: {len(rows)} rows for one child"
+    assert rows[0]["state"] == "CANCELLED"
+
+
 def test_pending_muster_rows_age_out(ctx):
     """A muster launch whose start never arrives stops ghosting the run count."""
     service = FakeService()

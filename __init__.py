@@ -464,7 +464,7 @@ def _find_live_by_child(ledger: Ledger, child_session_id: str) -> dict[str, Any]
     def _op(conn) -> dict[str, Any] | None:
         row = conn.execute(
             "SELECT * FROM flights WHERE child_session_id = :sid "
-            "AND state IN ('PENDING','STARTING','RUNNING','STALLED','SPINNING') "
+            "AND state IN ('PENDING','STARTING','RUNNING','STALLED','SPINNING','CANCEL_REQUESTED') "
             "ORDER BY started_at DESC LIMIT 1",
             {"sid": truncate(child_session_id, 128)},
         ).fetchone()
