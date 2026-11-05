@@ -1,11 +1,11 @@
-// muster — air-traffic control for delegated subagent fleets (Desktop half).
+// muster — who's still running? (Desktop half).
 //
-// A layout pane (live fleet board) + a status-bar chip (run/stall/lost counts).
-// Data comes from muster's own backend namespace (/api/plugins/muster/*), fed
-// by the agent-side ledger that observes Hermes' subagent/LLM/tool hooks.
+// Live fleet pane + status-bar chip. Fully theme-aware: every color is a
+// semantic --ui-* token the host paints, so it follows light/dark, accent
+// retints and any installed theme (including the bundled "Muster Ops" one)
+// with zero hardcoded colors.
 //
 // Catalog-safe imports only: @hermes/plugin-sdk, react, react/jsx-runtime.
-// No JSX (disk plugins load uncompiled) — jsx()/jsxs() from react/jsx-runtime.
 
 import { host, haptic, cn } from '@hermes/plugin-sdk'
 import { jsx, jsxs, Fragment } from 'react/jsx-runtime'
@@ -13,22 +13,36 @@ import { useCallback, useEffect, useState } from 'react'
 
 const POLL_MS = 2000
 
+// Semantic state colors — the host repaints these per theme, so a light theme,
+// a retinted accent or "Muster Ops" all stay readable with no extra code.
+const C = {
+  ok: 'var(--ui-green)',
+  warn: 'var(--ui-yellow)',
+  bad: 'var(--ui-red)',
+  info: 'var(--ui-cyan)',
+  warm: 'var(--ui-warm, var(--ui-yellow))',
+  dim: 'var(--ui-text-tertiary)',
+}
+
+// translucent border helper (theme-aware: mixes the token itself)
+const mix = (token, pct) => `color-mix(in srgb, ${token} ${pct}%, transparent)`
+
 const STATE_STYLE = {
-  RUNNING: { label: 'RUN', dot: 'bg-emerald-400', text: 'text-emerald-400', ring: 'border-emerald-500/30' },
-  STARTING: { label: 'START', dot: 'bg-sky-400', text: 'text-sky-400', ring: 'border-sky-500/30' },
-  PENDING: { label: 'QUEUE', dot: 'bg-sky-400/70', text: 'text-sky-400/90', ring: 'border-sky-500/20' },
-  STALLED: { label: 'STALLED', dot: 'bg-amber-400', text: 'text-amber-400', ring: 'border-amber-500/40' },
-  SPINNING: { label: 'SPINNING', dot: 'bg-red-400', text: 'text-red-400', ring: 'border-red-500/40' },
-  LOST: { label: 'LOST', dot: 'bg-zinc-400', text: 'text-zinc-400', ring: 'border-zinc-500/30' },
-  SUCCEEDED: { label: 'DONE', dot: 'bg-emerald-400/60', text: 'text-emerald-400/80', ring: 'border-emerald-500/20' },
-  FAILED: { label: 'FAILED', dot: 'bg-red-400/70', text: 'text-red-400/90', ring: 'border-red-500/25' },
-  INTERRUPTED: { label: 'CUT', dot: 'bg-orange-400/70', text: 'text-orange-400/90', ring: 'border-orange-500/25' },
-  CANCEL_REQUESTED: { label: 'CANCELLING', dot: 'bg-orange-400', text: 'text-orange-400', ring: 'border-orange-500/40' },
-  CANCELLED: { label: 'CANCELLED', dot: 'bg-zinc-400/70', text: 'text-zinc-400/90', ring: 'border-zinc-500/25' },
+  RUNNING: { label: 'working', dot: C.ok, text: C.ok, ring: mix(C.ok, 30) },
+  STARTING: { label: 'starting', dot: C.info, text: C.info, ring: mix(C.info, 30) },
+  PENDING: { label: 'queued', dot: mix(C.info, 70), text: C.info, ring: mix(C.info, 20) },
+  STALLED: { label: 'stuck', dot: C.warn, text: C.warn, ring: mix(C.warn, 40) },
+  SPINNING: { label: 'failing on repeat', dot: C.bad, text: C.bad, ring: mix(C.bad, 40) },
+  LOST: { label: 'gone', dot: C.dim, text: C.dim, ring: mix(C.dim, 30) },
+  SUCCEEDED: { label: 'done', dot: mix(C.ok, 60), text: mix(C.ok, 80), ring: mix(C.ok, 20) },
+  FAILED: { label: 'failed', dot: mix(C.bad, 70), text: mix(C.bad, 90), ring: mix(C.bad, 25) },
+  INTERRUPTED: { label: 'cut short', dot: mix(C.warm, 70), text: mix(C.warm, 90), ring: mix(C.warm, 25) },
+  CANCEL_REQUESTED: { label: 'stopping…', dot: C.warm, text: C.warm, ring: mix(C.warm, 40) },
+  CANCELLED: { label: 'stopped', dot: mix(C.dim, 70), text: mix(C.dim, 90), ring: mix(C.dim, 25) },
 }
 
 function stateStyle(state) {
-  return STATE_STYLE[state] || { label: state || '?', dot: 'bg-zinc-500', text: 'text-zinc-400', ring: 'border-zinc-500/20' }
+  return STATE_STYLE[state] || { label: state || '?', dot: C.dim, text: C.dim, ring: mix(C.dim, 20) }
 }
 
 const LIVE_FOR_ACTIONS = new Set(['PENDING', 'STARTING', 'RUNNING', 'STALLED', 'SPINNING', 'CANCEL_REQUESTED'])
@@ -56,19 +70,21 @@ function Chip({ board }) {
   const lost = counts.LOST || 0
   const alarm = stall + spin + lost
   const parts = []
-  if (run) parts.push(`${run} run`)
-  if (stall) parts.push(`${stall} stall`)
-  if (spin) parts.push(`${spin} spin`)
-  if (lost) parts.push(`${lost} lost`)
+  if (run) parts.push(`${run} working`)
+  if (stall) parts.push(`${stall} stuck`)
+  if (spin) parts.push(`${spin} failing`)
+  if (lost) parts.push(`${lost} gone`)
+  const tone = alarm ? C.warn : run ? C.ok : C.dim
   return jsxs('button', {
     type: 'button',
-    className: cn('flex items-center gap-1 px-1.5 text-[0.6875rem]', alarm ? 'text-amber-400' : run ? 'text-emerald-400' : 'text-(--ui-text-tertiary)'),
+    className: 'flex items-center gap-1 px-1.5 text-[0.6875rem]',
+    style: { color: tone },
     onClick: () => {
       haptic('tap')
-      host.notify({ kind: alarm ? 'warning' : 'info', message: parts.length ? `muster · ${parts.join(' · ')}` : 'muster · fleet idle' })
+      host.notify({ kind: alarm ? 'warning' : 'info', message: parts.length ? `muster · ${parts.join(' · ')}` : 'muster · all quiet' })
     },
     children: [
-      jsx('span', { className: cn('inline-block h-1.5 w-1.5 rounded-full', alarm ? 'bg-amber-400' : run ? 'bg-emerald-400' : 'bg-zinc-500') }),
+      jsx('span', { className: 'inline-block h-1.5 w-1.5 rounded-full', style: { background: tone } }),
       jsx('span', { children: parts.length ? `muster · ${parts.join(' · ')}` : 'muster' }),
     ],
   })
@@ -77,8 +93,9 @@ function Chip({ board }) {
 function StateBadge({ state }) {
   const s = stateStyle(state)
   return jsxs('span', {
-    className: cn('inline-flex items-center gap-1 rounded border px-1 py-[1px] text-[0.625rem] font-medium', s.ring, s.text),
-    children: [jsx('span', { className: cn('inline-block h-1.5 w-1.5 rounded-full', s.dot) }), s.label],
+    className: 'inline-flex items-center gap-1 rounded border px-1 py-[1px] text-[0.625rem] font-medium',
+    style: { color: s.text, borderColor: s.ring },
+    children: [jsx('span', { className: 'inline-block h-1.5 w-1.5 rounded-full', style: { background: s.dot } }), s.label],
   })
 }
 
@@ -87,14 +104,13 @@ function FlightRow({ flight, serviceAvailable, onAction, showGoals }) {
   const [steering, setSteering] = useState(false)
   const [text, setText] = useState('')
   const canAct = serviceAvailable && flight.has_handle && LIVE_FOR_ACTIONS.has(flight.state)
-  const observed = !flight.has_handle
 
-  const doCancel = useCallback(() => {
+  const doStop = useCallback(() => {
     haptic('tap')
     onAction('cancel', flight.short_id, '')
   }, [flight.short_id, onAction])
 
-  const sendSteer = useCallback(() => {
+  const sendNote = useCallback(() => {
     const t = text.trim()
     if (!t) return
     haptic('tap')
@@ -103,8 +119,17 @@ function FlightRow({ flight, serviceAvailable, onAction, showGoals }) {
     setSteering(false)
   }, [text, flight.short_id, onAction])
 
+  const btn = (color, label, onClick) => jsx('button', {
+    type: 'button',
+    onClick,
+    className: 'rounded border px-2 py-0.5 text-[0.6875rem]',
+    style: { color, borderColor: mix(color, 40) },
+    children: label,
+  })
+
   return jsxs('div', {
-    className: cn('rounded-md border px-2.5 py-2 flex flex-col gap-1.5', s.ring, 'bg-(--ui-bg-primary)'),
+    className: 'rounded-md border px-2.5 py-2 flex flex-col gap-1.5 bg-(--ui-bg-elevated)',
+    style: { borderColor: s.ring },
     children: [
       jsxs('div', { className: 'flex items-center gap-2', children: [
         jsx(StateBadge, { state: flight.state }),
@@ -118,39 +143,27 @@ function FlightRow({ flight, serviceAvailable, onAction, showGoals }) {
         jsx('span', { children: `${flight.tool_calls || 0} tools` }),
         jsx('span', { children: `${flight.api_calls || 0} api` }),
         jsx('span', { children: `${fmtTokens(flight.prompt_tokens)}→${fmtTokens(flight.completion_tokens)} tok` }),
-        (flight.requeue_count || 0) >= 2 ? jsx('span', { className: 'text-red-400 font-medium', children: `spin x${flight.requeue_count}` }) : null,
-        flight.tool_in_flight ? jsx('span', { className: 'text-sky-400', children: `in ${flight.tool_in_flight}` }) : null,
-        flight.source && flight.source !== 'muster' ? jsx('span', { className: 'ml-auto', children: flight.source === 'observed' ? 'observed · read-only' : flight.source }) : null,
+        (flight.requeue_count || 0) >= 2 ? jsx('span', { style: { color: C.bad }, className: 'font-medium', children: `failed ${flight.requeue_count}×` }) : null,
+        flight.tool_in_flight ? jsx('span', { style: { color: C.info }, children: `in ${flight.tool_in_flight}` }) : null,
+        flight.source && flight.source !== 'muster' ? jsx('span', { className: 'ml-auto', children: flight.source === 'observed' ? 'hermes-spawned · read-only' : flight.source }) : null,
       ] }),
-      flight.state === 'LOST' ? jsx('div', { className: 'text-[0.625rem] text-zinc-400', children: 'hermes crashed before this finished — found at restart' }) : null,
-      flight.state === 'SPINNING' ? jsx('div', { className: 'text-[0.625rem] text-red-400', children: 'tried and failed several times — something upstream is broken' }) : null,
-      canAct || observed && LIVE_FOR_ACTIONS.has(flight.state) ? jsxs('div', { className: 'flex items-center gap-1.5', children: [
+      flight.state === 'LOST' ? jsx('div', { className: 'text-[0.625rem] text-(--ui-text-tertiary)', children: 'hermes crashed before this finished — found at restart' }) : null,
+      flight.state === 'SPINNING' ? jsx('div', { className: 'text-[0.625rem]', style: { color: C.bad }, children: 'tried and failed several times — something upstream is broken' }) : null,
+      canAct || (!flight.has_handle && LIVE_FOR_ACTIONS.has(flight.state)) ? jsx('div', { className: 'flex items-center gap-1.5', children:
         canAct ? jsxs(Fragment, { children: [
-          jsx('button', {
-            type: 'button', onClick: doCancel,
-            className: 'rounded border border-red-500/40 px-2 py-0.5 text-[0.6875rem] text-red-400 hover:bg-red-500/10',
-            children: 'Stop',
-          }),
-          jsx('button', {
-            type: 'button', onClick: () => setSteering((v) => !v),
-            className: 'rounded border border-sky-500/40 px-2 py-0.5 text-[0.6875rem] text-sky-400 hover:bg-sky-500/10',
-            children: steering ? 'Close' : 'Message',
-          }),
+          btn(C.bad, 'Stop', doStop),
+          btn(C.info, 'Message', () => setSteering((v) => !v)),
         ] }) : jsx('span', { className: 'text-[0.625rem] text-(--ui-text-tertiary)', children: 'started by hermes itself · stop it from the chat' }),
-      ] }) : null,
+      }) : null,
       steering && canAct ? jsxs('div', { className: 'flex items-center gap-1.5', children: [
         jsx('input', {
           value: text,
           onChange: (e) => setText(e.target.value),
-          onKeyDown: (e) => { if (e.key === 'Enter') sendSteer() },
+          onKeyDown: (e) => { if (e.key === 'Enter') sendNote() },
           placeholder: 'send it a message…',
-          className: 'flex-1 rounded border border-(--ui-border) bg-transparent px-2 py-1 text-xs outline-none focus:border-sky-500/60',
+          className: 'flex-1 rounded border border-(--ui-border) bg-transparent px-2 py-1 text-xs outline-none',
         }),
-        jsx('button', {
-          type: 'button', onClick: sendSteer,
-          className: 'rounded border border-sky-500/40 px-2 py-0.5 text-[0.6875rem] text-sky-400 hover:bg-sky-500/10',
-          children: 'Send',
-        }),
+        btn(C.info, 'Send', sendNote),
       ] }) : null,
     ],
   })
@@ -159,7 +172,6 @@ function FlightRow({ flight, serviceAvailable, onAction, showGoals }) {
 function FleetPane({ ctx }) {
   const [board, setBoard] = useState(null)
   const [error, setError] = useState(null)
-  const [busy, setBusy] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -173,23 +185,23 @@ function FleetPane({ ctx }) {
 
   useEffect(() => {
     load()
-    return ctx.setInterval(load, POLL_MS)
+    const stopPoll = ctx.setInterval(load, POLL_MS)
+    // a settings save broadcasts this — re-read instantly instead of waiting a tick
+    const offSettings = ctx.onEvent('plugin.muster.settings.changed', load)
+    return () => { stopPoll(); offSettings() }
   }, [load, ctx])
 
   const onAction = useCallback(async (verb, flightId, extra) => {
-    setBusy(true)
     try {
       const res = await ctx.rest(`/action/${verb}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ flight_id: flightId, reason: extra || 'muster pane', text: extra || '' }),
       })
-      host.notify({ kind: res && res.ok ? 'info' : 'warning', message: (res && res.message) || `${verb} sent` })
+      host.notify({ kind: res && res.ok ? 'info' : 'warning', message: (res && res.message) || 'done' })
       load()
     } catch (e) {
       host.notify({ kind: 'error', message: `muster: ${verb} failed — ${String((e && e.message) || e)}` })
-    } finally {
-      setBusy(false)
     }
   }, [ctx, load])
 
@@ -206,10 +218,10 @@ function FleetPane({ ctx }) {
       jsx('span', { className: 'text-[0.625rem] text-(--ui-text-tertiary)', children: 'who\u2019s still running' }),
       jsx('span', { className: 'flex-1' }),
       (counts.STALLED || 0) + (counts.SPINNING || 0) + (counts.LOST || 0) > 0
-        ? jsx('span', { className: 'rounded bg-amber-500/15 px-1.5 py-0.5 text-[0.625rem] text-amber-400', children: 'needs attention' })
+        ? jsx('span', { className: 'rounded px-1.5 py-0.5 text-[0.625rem]', style: { color: C.warn, background: mix(C.warn, 15) }, children: 'needs attention' })
         : null,
     ] }),
-    error ? jsx('div', { className: 'rounded border border-red-500/30 px-2 py-1.5 text-xs text-red-400', children: `backend unavailable: ${error}` }) : null,
+    error ? jsx('div', { className: 'rounded border px-2 py-1.5 text-xs', style: { color: C.bad, borderColor: mix(C.bad, 30) }, children: `backend unavailable: ${error}` }) : null,
     jsx('div', { className: 'flex-1 overflow-y-auto flex flex-col gap-1.5 pr-0.5', children:
       active.length === 0 && recent.length === 0
         ? jsx('div', { className: 'flex h-full items-center justify-center text-xs text-(--ui-text-tertiary)', children: 'nothing running right now — all quiet' })
@@ -220,22 +232,91 @@ function FleetPane({ ctx }) {
         ] }),
     }),
     board && board.aux && board.aux.length ? jsx('div', { className: 'px-1 text-[0.625rem] text-(--ui-text-tertiary)', children:
-      `auxiliary: ${board.aux.slice(0, 3).map((a) => `${a.task || 'aux'} ${fmtTokens(a.prompt_tokens)}→${fmtTokens(a.completion_tokens)}`).join(' · ')}`
+      `hermes chores: ${board.aux.slice(0, 3).map((a) => `${a.task || 'aux'} ${fmtTokens(a.prompt_tokens)}→${fmtTokens(a.completion_tokens)}`).join(' · ')}`
     }) : null,
   ] })
+}
+
+// ---- bundled theme: "Muster Ops" — a warm control-room look, light + dark ----
+
+const OPS_DARK = {
+  background: '#0c0b09',
+  foreground: '#e7e2d8',
+  card: '#15130f',
+  cardForeground: '#e7e2d8',
+  muted: '#1d1a15',
+  mutedForeground: '#9a927f',
+  popover: '#191612',
+  popoverForeground: '#e7e2d8',
+  primary: '#f59e0b',
+  primaryForeground: '#1c1408',
+  secondary: '#211d16',
+  secondaryForeground: '#cdc6b8',
+  accent: '#e8a33d',
+  accentForeground: '#1c1408',
+  border: '#2a251d',
+  input: '#2a251d',
+  ring: '#f59e0b',
+  midground: '#f59e0b',
+  midgroundForeground: '#1c1408',
+  destructive: '#ef4444',
+  destructiveForeground: '#ffffff',
+  sidebarBackground: '#100e0b',
+  sidebarBorder: '#2a251d',
+  userBubble: '#211d16',
+  userBubbleBorder: '#2a251d',
+}
+
+const OPS_LIGHT = {
+  background: '#faf8f4',
+  foreground: '#1f1b15',
+  card: '#ffffff',
+  cardForeground: '#1f1b15',
+  muted: '#f1ece2',
+  mutedForeground: '#6f675a',
+  popover: '#ffffff',
+  popoverForeground: '#1f1b15',
+  primary: '#b45309',
+  primaryForeground: '#ffffff',
+  secondary: '#f1ece2',
+  secondaryForeground: '#44403c',
+  accent: '#d97706',
+  accentForeground: '#ffffff',
+  border: '#e2ddd2',
+  input: '#e2ddd2',
+  ring: '#b45309',
+  midground: '#b45309',
+  midgroundForeground: '#ffffff',
+  destructive: '#dc2626',
+  destructiveForeground: '#ffffff',
+  sidebarBackground: '#f3efe7',
+  sidebarBorder: '#e2ddd2',
+  userBubble: '#f1ece2',
+  userBubbleBorder: '#e2ddd2',
+}
+
+const MUSTER_OPS_THEME = {
+  name: 'muster-ops',
+  label: 'Muster Ops',
+  colors: OPS_LIGHT,
+  darkColors: OPS_DARK,
 }
 
 export default {
   id: 'muster',
   name: 'Muster',
   register(ctx) {
+    // theme contribution — appears in the theme picker as "Muster Ops"
+    ctx.register({ id: 'ops', area: 'themes', data: MUSTER_OPS_THEME })
+
     ctx.register({
       id: 'fleet',
       area: 'panes',
       title: 'Muster · fleet',
-      data: { placement: 'right', width: '380px' },
+      data: { placement: 'right', width: 'min(400px, 36vw)' },
       render: () => jsx(FleetPane, { ctx }),
     })
+
     let chipBoard = null
     let chipRef = { current: null }
     const ChipRender = () => {

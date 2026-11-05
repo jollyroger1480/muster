@@ -51,10 +51,10 @@ predefined roster.
 
 | Surface | What it shows / does |
 |---|---|
-| **Desktop pane** | Live fleet board: every child with state, role, goal, last-event age, tool/API counts, tokens; cancel/steer buttons on muster-launched children |
-| **Status-bar chip** | `muster · 2 run · 1 stall` — turns amber the moment anything needs attention |
+| **Desktop pane** | Live fleet board: every child with state, role, goal, last-event age, tool/API counts, tokens; **Stop** and **Message** buttons on muster-launched children |
+| **Status-bar chip** | `muster · 2 working · 1 stuck` — turns amber the moment anything needs attention |
 | **Dashboard tab** | The same board in the web dashboard (read + act) |
-| **`/muster`** | Fleet table in any chat, including messaging platforms; `/muster cancel <id>` and `/muster steer <id> <text>` act on muster children |
+| **`/muster`** | Fleet table in any chat, including messaging platforms; `/muster stop <id>` and `/muster note <id> <text>` act on muster workers (`cancel`/`steer` still work as aliases) |
 | **`muster_status` tool** | Fleet JSON for the agent itself, so it can report health honestly |
 | **`muster_fanout` tool** | Launch supervised children through the public subagent lifecycle API — those children get real cancel/steer because muster keeps their handles |
 
@@ -75,10 +75,10 @@ predefined roster.
 
 ## Control model
 
-- **Muster-launched children** (via `muster_fanout`) carry a subagent-lifecycle
-  handle: cancel (cooperative, `CANCEL_REQUESTED` → child interrupts at its
-  next safe boundary) and steer (text queued for the child's next iteration
-  boundary) work from the pane, the dashboard and chat.
+- **Muster-launched workers** (via `muster_fanout`) carry a subagent-lifecycle
+  handle: **Stop** (cooperative — the worker finishes its current step, then
+  quits safely) and **Message** (delivered at its next step) work from the
+  pane, the dashboard and chat.
 - **Model-spawned `delegate_task` children are observed, read-only.** Muster
   never claims actions it cannot take; their rows say "cancel from the
   parent".
