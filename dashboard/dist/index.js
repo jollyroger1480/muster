@@ -93,17 +93,17 @@
         React.createElement("span", null, fmtTokens(f.prompt_tokens) + "→" + fmtTokens(f.completion_tokens) + " tok"),
         (f.requeue_count || 0) >= 2 ? React.createElement("span", { className: "text-red-400 font-medium" }, "spin x" + f.requeue_count) : null,
         f.tool_in_flight ? React.createElement("span", { className: "text-sky-400" }, "in " + f.tool_in_flight) : null,
-        f.source && f.source !== "muster" ? React.createElement("span", { className: "ml-auto" }, f.source === "observed" ? "observed · read-only" : f.source) : null
+        f.source && f.source !== "muster" ? React.createElement("span", { className: "ml-auto" }, f.source === "observed" ? "hermes-spawned · read-only" : f.source) : null
       ),
       f.state === "LOST"
-        ? React.createElement("div", { className: "text-[0.625rem] text-zinc-400" }, "gateway died before this child finished; marked lost on boot")
+        ? React.createElement("div", { className: "text-[0.625rem] text-zinc-400" }, "hermes crashed before this finished — found at restart")
         : null,
       canAct
         ? React.createElement("div", { className: "flex items-center gap-1.5" },
-            React.createElement("button", { className: "rounded border border-red-500/40 px-2 py-0.5 text-[0.6875rem] text-red-400 hover:bg-red-500/10", onClick: function () { act("cancel", ""); } }, "Cancel"),
-            React.createElement("button", { className: "rounded border border-sky-500/40 px-2 py-0.5 text-[0.6875rem] text-sky-400 hover:bg-sky-500/10", onClick: function () { setSteering(function (v) { return !v; }); } }, steering ? "Close" : "Steer"),
+            React.createElement("button", { className: "rounded border border-red-500/40 px-2 py-0.5 text-[0.6875rem] text-red-400 hover:bg-red-500/10", onClick: function () { act("cancel", ""); } }, "Stop"),
+            React.createElement("button", { className: "rounded border border-sky-500/40 px-2 py-0.5 text-[0.6875rem] text-sky-400 hover:bg-sky-500/10", onClick: function () { setSteering(function (v) { return !v; }); } }, steering ? "Close" : "Message"),
             steering ? React.createElement(React.Fragment, null,
-              React.createElement("input", { value: steerText, onChange: function (e) { setSteerText(e.target.value); }, placeholder: "steering text…", className: "flex-1 rounded border bg-transparent px-2 py-1 text-xs" }),
+              React.createElement("input", { value: steerText, onChange: function (e) { setSteerText(e.target.value); }, placeholder: "send it a message…", className: "flex-1 rounded border bg-transparent px-2 py-1 text-xs" }),
               React.createElement("button", { className: "rounded border border-sky-500/40 px-2 py-0.5 text-[0.6875rem] text-sky-400", onClick: function () { if (steerText.trim()) { act("steer", steerText.trim()); setSteerText(""); setSteering(false); } } }, "Send")
             ) : null
           )

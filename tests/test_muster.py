@@ -321,7 +321,7 @@ def test_observed_delegate_task_rows_are_readonly(ctx):
     flight, handle = ops.ledger.handle_for_flight(board["flights"][0]["id"])
     assert flight is not None and handle is None
     text = ops.command(f"cancel {board['flights'][0]['id']}")
-    assert "observed" in text and "cannot be cancelled" in text
+    assert "started by hermes itself" in text and "watching its progress" in text
 
 
 def test_cancel_and_steer_via_command(ctx):
@@ -333,13 +333,13 @@ def test_cancel_and_steer_via_command(ctx):
     ops = muster._REGISTERED[0]["ops"]
 
     text = ops.command(f"cancel {fid[:8]} stop wasting tokens")
-    assert "cancel accepted" in text
+    assert "stopping" in text
     assert service.cancelled and service.cancelled[0][1] == "stop wasting tokens"
     row = ops.ledger.find_flight(fid)
     assert row["state"] == "CANCEL_REQUESTED"
 
     text = ops.command(f"steer {fid[:8]} skip the tests")
-    assert "steering queued" in text
+    assert "message sent" in text
     assert service.steered and service.steered[0][1] == "skip the tests"
 
 
@@ -508,7 +508,7 @@ def test_cancel_refusal_is_not_recorded_as_progress(ctx):
     ctx2.hooks["subagent_start"](parent_session_id="parent-1", child_session_id="c-r",
                                  child_subagent_id="s-r", child_role="leaf", child_goal="refused child")
     text = ctx2.commands["muster"](f"cancel {fid[:8]}")
-    assert "REFUSED" in text
+    assert "couldn't stop" in text
     row = ops_row = muster._REGISTERED[0]["ops"].ledger.find_flight(fid)
     assert row["state"] == "RUNNING", "refusal must not move the row to CANCEL_REQUESTED"
 

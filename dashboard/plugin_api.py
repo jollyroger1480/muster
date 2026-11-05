@@ -181,29 +181,27 @@ async def action_cancel(payload: dict[str, Any]) -> dict[str, Any]:
     ledger = _ledger()
     flight, handle = _handle_for(ledger, flight_id)
     if flight is None:
-        return {"ok": False, "message": f"no flight matching {flight_id[:8]}"}
+        return {"ok": False, "message": f"no worker called “{flight_id[:8]}” — check /muster for ids"}
     if handle is None:
         return {"ok": False,
-                "message": f"{flight['id'][:8]} is an observed child (source: {flight.get('source')}) — "
-                           "only muster-launched children carry a handle. Cancel from the parent session."}
+                "message": "that one was started by hermes itself — muster only watches it. stop it from the chat that started it."}
     service = _service()
     if service is None:
-        return {"ok": False, "message": "subagent lifecycle service not reachable from this process"}
+        return {"ok": False, "message": "stop/message buttons work where the agent runs — this window can't reach them"}
     try:
         result = service.cancel(handle, reason=reason)
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "message": f"cancel failed: {type(exc).__name__}"}
     if bool(getattr(result, "unknown_handle", False)):
-        return {"ok": False, "message": "handle not known to this process (gateway restarted?) — "
-                                        "the row will be marked LOST on next boot"}
+        return {"ok": False, "message": "that worker's stop button died with the last restart — it shows as gone after start-up"}
     if bool(getattr(result, "already_terminal", False)):
         return {"ok": True, "message": "already finished"}
     if not bool(getattr(result, "accepted", False)):
         # refused by the lifecycle service — never fake progress
         detail = str(getattr(result, "diagnostic", "") or "refused by the lifecycle service")
-        return {"ok": False, "message": f"cancel REFUSED for {flight['id'][:8]} — {detail}"}
+        return {"ok": False, "message": f"couldn't stop it ({detail}). its row is unchanged."}
     ledger.update_flight(flight["id"], {"state": "CANCEL_REQUESTED", "last_event_kind": "cancel_requested"})
-    return {"ok": True, "message": "cancel accepted — child interrupts at its next safe boundary"}
+    return {"ok": True, "message": "stopping — it finishes its current step, then quits safely"}
 
 
 @router.post("/action/steer")
@@ -215,17 +213,17 @@ async def action_steer(payload: dict[str, Any]) -> dict[str, Any]:
     ledger = _ledger()
     flight, handle = _handle_for(ledger, flight_id)
     if flight is None:
-        return {"ok": False, "message": f"no flight matching {flight_id[:8]}"}
+        return {"ok": False, "message": f"no worker called “{flight_id[:8]}” — check /muster for ids"}
     if handle is None:
-        return {"ok": False, "message": "observed child — steering is only available for muster launches"}
+        return {"ok": False, "message": "that one was started by hermes itself — muster only watches it"}
     service = _service()
     if service is None:
-        return {"ok": False, "message": "subagent lifecycle service not reachable from this process"}
+        return {"ok": False, "message": "stop/message buttons work where the agent runs — this window can't reach them"}
     try:
         accepted = bool(service.steer(handle, text))
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "message": f"steer failed: {type(exc).__name__}"}
     if not accepted:
-        return {"ok": False, "message": "child is not accepting steering right now"}
+        return {"ok": False, "message": "it can't take messages right now (just finished, or already gone)"}
     ledger.update_flight(flight["id"], {"last_event_kind": "steered"})
-    return {"ok": True, "message": "steering queued for the child's next iteration boundary"}
+    return {"ok": True, "message": "message sent — it reads it at its next step"}

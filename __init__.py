@@ -413,8 +413,8 @@ def register(ctx: Any) -> None:
             emoji="📋",
         )
         ctx.register_command("muster", ops.command,
-                             description="Fleet status and control for delegated children (muster).",
-                             args_hint="[cancel|steer <id> ...]")
+                             description="Who's still running? (working / stuck / gone, with stop + note)",
+                             args_hint="[stop|note <id> ...]")
     except Exception:  # noqa: BLE001
         logger.exception("muster: tool/command registration failed")
 
@@ -516,11 +516,9 @@ def _stall_loop(ledger: Ledger, ops: FleetOps, stop_event: threading.Event) -> N
 _FANOUT_SCHEMA = {
     "name": "muster_fanout",
     "description": (
-        "Launch one or more supervised child Hermes agents through the public subagent "
-        "lifecycle API and track them in muster. Each child runs to completion "
-        "asynchronously; watch them with /muster or muster_status, and cancel or steer "
-        "them from the Desktop pane or /muster cancel|steer. Use for parallel research, "
-        "reviews or long checks you want visible and controllable."
+        "Start helper agents that work in the background, in parallel. They are tracked "
+        "so the user can see them, and they can be stopped or messaged mid-job. Watch "
+        "progress with /muster or muster_status."
     ),
     "parameters": {
         "type": "object",
@@ -528,28 +526,28 @@ _FANOUT_SCHEMA = {
             "goals": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "Short, self-contained goal per child (80 chars each).",
+                "description": "What each worker should do — one short job description each.",
             },
             "context": {
                 "type": "string",
-                "description": "Optional shared context for every child.",
+                "description": "Extra background info every worker should know.",
             },
             "role": {
                 "type": "string",
-                "description": "Child role; defaults to 'leaf'.",
+                "description": "Optional: what kind of helper to spawn.",
             },
             "model": {
                 "type": "string",
-                "description": "Optional model override per child.",
+                "description": "Optional: use a specific model for the workers.",
             },
             "provider": {
                 "type": "string",
-                "description": "Optional provider override per child.",
+                "description": "Optional: use a specific provider for the workers.",
             },
             "allowed_toolsets": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "Optional toolset narrowing (the only restriction the lifecycle API accepts).",
+                "description": "Optional: limit which tools the workers may use.",
             },
         },
         "required": ["goals"],
@@ -559,9 +557,9 @@ _FANOUT_SCHEMA = {
 _STATUS_SCHEMA = {
     "name": "muster_status",
     "description": (
-        "Report the muster fleet: every delegated child agent with its state "
-        "(running/stalled/spinning/lost/terminal), last-event age, tool calls, "
-        "tokens and spin strikes. Use before and after delegating to check fleet health."
+        "Check on the background workers: who's working, who's stuck, who's gone, "
+        "and how many tokens each used. Check this before telling the user that "
+        "delegated work is done."
     ),
     "parameters": {"type": "object", "properties": {}},
 }

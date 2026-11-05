@@ -1,28 +1,26 @@
 # Muster
 
-**Air-traffic control for delegated subagent fleets.** "Who's still running?"
+**You gave your AI helpers some jobs. Muster shows you who's actually
+working, who's stuck, and who's gone — and lets you stop them with one
+click.**
 
-Muster keeps a durable ledger of every child agent Hermes spawns — whether the
-model delegated it via `delegate_task`, you launched it with `muster_fanout`,
-or a kanban board dispatched it — and makes fleet health answerable at a
-glance instead of a guess.
+"Who's still running?" is the whole product.
 
 ## Why
 
-Two failure modes bite every fleet operator (see
+Two things go wrong with background agents, and hermes can't tell you about
+either one (see
 [NousResearch/hermes-agent#149110](https://github.com/NousResearch/hermes-agent/issues/149110)):
 
-1. **Silent deaths.** A child that dies on its first provider call is recorded
-   as a neutral `rate_limited` and requeued; the dispatcher can spin for hours
-   producing zero tokens with no escalation anywhere. A dead gateway emits no
-   `subagent_stop` at all, so a "running" row outlives its process. Core's
-   `/agents` stall monitor interrupts quiet children mid-run, but nothing
-   durable survives the process, and nothing distinguishes stalled from
-   spinning from lost after the fact.
-2. **Stall blindness.** Nothing distinguishes "working quietly" from "hung" —
-   and a tool call in flight looks exactly like a wedge.
+1. **Quiet deaths.** A worker that dies on its first API call gets retried
+   silently, forever. And if hermes itself crashes, every "running" row is a
+   lie — nothing survived.
+2. **The hang.** A worker sitting silent for ten minutes might be thinking
+   or might be dead. Nothing tells you which.
 
-Muster closes both from the observer side, without patching core.
+Muster watches from the outside and gives every worker one of four plain
+answers: **working**, **stuck**, **failing on repeat**, or **gone** — then
+lets you stop the stuck ones with a click.
 
 ## How it differs from adjacent plugins
 

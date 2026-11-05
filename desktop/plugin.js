@@ -122,28 +122,28 @@ function FlightRow({ flight, serviceAvailable, onAction, showGoals }) {
         flight.tool_in_flight ? jsx('span', { className: 'text-sky-400', children: `in ${flight.tool_in_flight}` }) : null,
         flight.source && flight.source !== 'muster' ? jsx('span', { className: 'ml-auto', children: flight.source === 'observed' ? 'observed · read-only' : flight.source }) : null,
       ] }),
-      flight.state === 'LOST' ? jsx('div', { className: 'text-[0.625rem] text-zinc-400', children: 'gateway died before this child finished; marked lost on boot' }) : null,
-      flight.state === 'SPINNING' ? jsx('div', { className: 'text-[0.625rem] text-red-400', children: 'this goal keeps failing and requeueing — core treats each retry as neutral' }) : null,
+      flight.state === 'LOST' ? jsx('div', { className: 'text-[0.625rem] text-zinc-400', children: 'hermes crashed before this finished — found at restart' }) : null,
+      flight.state === 'SPINNING' ? jsx('div', { className: 'text-[0.625rem] text-red-400', children: 'tried and failed several times — something upstream is broken' }) : null,
       canAct || observed && LIVE_FOR_ACTIONS.has(flight.state) ? jsxs('div', { className: 'flex items-center gap-1.5', children: [
         canAct ? jsxs(Fragment, { children: [
           jsx('button', {
             type: 'button', onClick: doCancel,
             className: 'rounded border border-red-500/40 px-2 py-0.5 text-[0.6875rem] text-red-400 hover:bg-red-500/10',
-            children: 'Cancel',
+            children: 'Stop',
           }),
           jsx('button', {
             type: 'button', onClick: () => setSteering((v) => !v),
             className: 'rounded border border-sky-500/40 px-2 py-0.5 text-[0.6875rem] text-sky-400 hover:bg-sky-500/10',
-            children: steering ? 'Close' : 'Steer',
+            children: steering ? 'Close' : 'Message',
           }),
-        ] }) : jsx('span', { className: 'text-[0.625rem] text-(--ui-text-tertiary)', children: 'spawned by the model · cancel from the parent' }),
+        ] }) : jsx('span', { className: 'text-[0.625rem] text-(--ui-text-tertiary)', children: 'started by hermes itself · stop it from the chat' }),
       ] }) : null,
       steering && canAct ? jsxs('div', { className: 'flex items-center gap-1.5', children: [
         jsx('input', {
           value: text,
           onChange: (e) => setText(e.target.value),
           onKeyDown: (e) => { if (e.key === 'Enter') sendSteer() },
-          placeholder: 'steering text for the child…',
+          placeholder: 'send it a message…',
           className: 'flex-1 rounded border border-(--ui-border) bg-transparent px-2 py-1 text-xs outline-none focus:border-sky-500/60',
         }),
         jsx('button', {
@@ -212,7 +212,7 @@ function FleetPane({ ctx }) {
     error ? jsx('div', { className: 'rounded border border-red-500/30 px-2 py-1.5 text-xs text-red-400', children: `backend unavailable: ${error}` }) : null,
     jsx('div', { className: 'flex-1 overflow-y-auto flex flex-col gap-1.5 pr-0.5', children:
       active.length === 0 && recent.length === 0
-        ? jsx('div', { className: 'flex h-full items-center justify-center text-xs text-(--ui-text-tertiary)', children: 'fleet idle — no delegated children yet' })
+        ? jsx('div', { className: 'flex h-full items-center justify-center text-xs text-(--ui-text-tertiary)', children: 'nothing running right now — all quiet' })
         : jsxs(Fragment, { children: [
           active.map((f) => jsx(FlightRow, { flight: f, serviceAvailable, onAction, showGoals }, f.id)),
           recent.length ? jsx('div', { className: 'mt-1 px-1 text-[0.625rem] uppercase tracking-wide text-(--ui-text-tertiary)', children: 'recent' }) : null,

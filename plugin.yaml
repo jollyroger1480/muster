@@ -1,17 +1,10 @@
 name: muster
 version: 1.0.0
 description: >-
-  Air-traffic control for delegated subagent fleets. A live ledger of every child
-  agent Hermes spawns — observed from the subagent/LLM/tool/kanban observer hooks —
-  shown in a Desktop pane, a status-bar chip, a dashboard tab, and a /muster command.
-  Distinguishes RUNNING from STALLED (no API or tool event for a configurable window,
-  in-flight tools exempt), flags LOST children after a gateway death (no subagent_stop
-  was ever fired), raises a SPINNING alarm when the same goal keeps failing with
-  rate-limited requeues core records as neutral, tracks per-child tokens from
-  post_api_request usage, and lets the agent or the user fan out supervised children
-  with muster_fanout — those come with real cancel/steer buttons backed by the public
-  SubagentLifecycle API. Read-only observation by default; writes nothing outside its
-  own plugin-data ledger; no network, no telemetry, no secrets, no dependencies.
+  See what your AI helpers are actually doing. Every worker hermes starts shows
+  up live in one pane: working, stuck (silent too long), failing on repeat, or
+  gone (hermes crashed). Stop a stuck one or send it a message with one click.
+  Start your own helpers with muster_fanout. No network, no setup, no deps.
 manifest_version: 2
 api_version: 1
 requires_hermes: ">=0.22.5"
@@ -23,28 +16,27 @@ config_schema:
   stall_seconds:
     type: int
     default: 300
-    label: Stall threshold (seconds)
+    label: When to call a worker "stuck" (seconds)
     description: >-
-      A RUNNING child with no API or tool event for this long shows STALLED.
-      An in-flight tool call exempts the child. 300 = 5 minutes.
+      If a worker has been silent this long, muster flags it as stuck.
+      300 = 5 minutes.
   spin_threshold:
     type: int
     default: 3
-    label: Spin alarm threshold
-    description: Failed/rate-limited terminal outcomes for the same goal within the
-      spin window that trip the SPINNING alarm.
+    label: Repeat-failure alarm
+    description: If the same job fails this many times, muster flags it as
+      "failing on repeat".
   spin_window_seconds:
     type: int
     default: 1800
-    label: Spin window (seconds)
-    description: Sliding window for spin-alarm strikes (default 30 minutes).
+    label: Repeat-failure window (seconds)
+    description: How far back to count repeat failures (default 30 minutes).
   show_goals:
     type: bool
     default: true
-    label: Show child goals
-    description: >-
-      Show the (80-char-truncated) goal text in the pane, chip tooltip and /muster.
-      Turn off in shared-screen environments; ids and roles stay visible.
+    label: Show what each worker is doing
+    description: Show each worker's job description in the pane. Turn off if
+      you share your screen.
   board_rows:
     type: int
     default: 120
@@ -54,7 +46,8 @@ config_schema:
     type: bool
     default: true
     label: Show status-bar chip
-    description: The muster chip in the Desktop status bar (run/stall/lost counts).
+    description: The little "muster · 2 working · 1 stuck" counter at the
+      bottom of the Desktop app.
 capabilities: []
 provides_tools:
   - muster_fanout

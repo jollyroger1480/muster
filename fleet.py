@@ -86,7 +86,7 @@ class FleetOps:
             goals = []
         goals = [g.strip()[:GOAL_MAX_CHARS] for g in goals if isinstance(g, str) and g.strip()]
         if not goals:
-            return json.dumps({"error": "muster_fanout needs 'goals': a list of short goal strings."})
+            return json.dumps({"error": "tell me what the workers should do: pass 'goals', a list of short jobs."})
 
         service = self._service()
         if service is None:
@@ -173,8 +173,8 @@ class FleetOps:
         return json.dumps({
             "launched": launched,
             "errors": errors,
-            "note": "Children appear in /muster as they start. Cancel or steer from the Desktop pane, "
-                    "the dashboard, or /muster cancel|steer <flight id>.",
+            "note": "They're off. Watch them with /muster — stop any of them with "
+                    "/muster stop <id> or the buttons in the desktop pane.",
         }, default=str)
 
     # -- muster_status --------------------------------------------------------
@@ -188,28 +188,28 @@ class FleetOps:
     def command(self, raw_args: str) -> str:
         parts = (raw_args or "").strip().split(None, 2)
         verb = parts[0].lower() if parts else ""
-        if verb in ("cancel", "steer") and len(parts) >= 2:
-            return self._action(verb, parts[1], parts[2] if len(parts) > 2 else "")
+        aliases = {"stop": "cancel", "cancel": "cancel", "note": "steer", "steer": "steer"}
+        if verb in aliases and len(parts) >= 2:
+            return self._action(aliases[verb], parts[1], parts[2] if len(parts) > 2 else "")
         if verb in ("help", "h", "?"):
             return (
-                "muster — fleet commands\n"
-                "  /muster                    fleet table\n"
-                "  /muster cancel <id> [why]  cooperative cancel (muster children only)\n"
-                "  /muster steer <id> <text>  queue steering text for a muster child\n"
-                "  /muster help               this text"
+                "muster — who's still running?\n"
+                "  /muster                      who's working, stuck or gone\n"
+                "  /muster stop <id>            stop one of your workers\n"
+                "  /muster note <id> <message>  send a running worker a message\n"
+                "  /muster help                 this text"
             )
         return self._table()
 
     def _action(self, verb: str, flight_id: str, extra: str) -> str:
         flight, handle = self.ledger.handle_for_flight(flight_id.strip())
         if flight is None:
-            return f"muster: no flight matching '{flight_id.strip()}'."
+            return f"no worker called “{flight_id.strip()}”. check /muster for the ids."
         if handle is None:
             source = flight.get("source") or "observed"
             return (
-                f"muster: flight {flight['id'][:8]} is a {source}-observed child, not a muster launch — "
-                "no handle exists, so it cannot be cancelled or steered from here. Cancel from the parent "
-                "session (the model's delegate owns it)."
+                f"that one (“{flight['id'][:8]}”) was started by hermes itself, not by muster — "
+                "so only hermes' own chat can stop it. muster is just watching its progress."
             )
         service = self._service()
         if service is None:
@@ -221,32 +221,30 @@ class FleetOps:
                 unknown = bool(getattr(result, "unknown_handle", False))
                 terminal = bool(getattr(result, "already_terminal", False))
                 if unknown:
-                    return (f"muster: handle for {flight['id'][:8]} is no longer known to this process "
-                            "(gateway restarted?). The row will be marked LOST on next boot.")
+                    return ("that worker's stop button died with the last restart. "
+                            "it will show up as gone after the next start-up.")
                 if terminal:
-                    return f"muster: {flight['id'][:8]} already finished; nothing to cancel."
+                    return f"already done — “{flight['id'][:8]}” finished on its own."
                 if not accepted:
                     # the lifecycle API refused — never fake progress: leave the
                     # row's state untouched and say so.
-                    detail = str(getattr(result, "diagnostic", "") or "refused by the lifecycle service")
-                    return f"muster: cancel REFUSED for {flight['id'][:8]} — {detail}"
+                    detail = str(getattr(result, "diagnostic", "") or "it said no")
+                    return f"couldn't stop “{flight['id'][:8]}” ({detail}). its row is unchanged."
                 self.ledger.update_flight(flight["id"], {
                     "state": "CANCEL_REQUESTED", "last_event_kind": "cancel_requested",
                 })
-                return (f"muster: cancel accepted for {flight['id'][:8]} — the child interrupts at its "
-                        "next safe boundary (CANCEL_REQUESTED until it settles).")
+                return (f"stopping “{flight['id'][:8]}” — it finishes its current step, then quits safely.")
             text = (extra or "").strip()
             if not text:
-                return "muster: steer needs text, e.g. /muster steer <id> skip the tests, just report."
+                return "add the message, like: /muster note <id> skip the tests, just report"
             accepted = bool(service.steer(handle, text))
             if accepted:
                 self.ledger.update_flight(flight["id"], {"last_event_kind": "steered"})
-                return f"muster: steering queued for {flight['id'][:8]} (applies at the child's next iteration boundary)."
-            return (f"muster: {flight['id'][:8]} is not accepting steering right now "
-                    "(finished, unknown handle, or steering closed).")
+                return f"message sent to “{flight['id'][:8]}” — it reads it at its next step."
+            return "it can't take messages right now (just finished, or already gone)."
         except Exception as exc:  # noqa: BLE001 - command surface must not crash the session
             logger.debug("muster: %s failed", verb, exc_info=True)
-            return f"muster: {verb} failed — {type(exc).__name__}."
+            return f"that didn't work ({type(exc).__name__}). try again in a second."
 
     # -- board rendering ---------------------------------------------------------
 
@@ -301,51 +299,55 @@ def _compact_board(board: dict[str, Any], *, show_goals: bool) -> dict[str, Any]
 def render_table(board: dict[str, Any], *, show_goals: bool, spin_threshold: int) -> str:
     counts = chip_counts(board)
     now = board.get("generated_at") or time.time()
-    lines: list[str] = []
-    header_bits = []
-    if counts["run"]:
-        header_bits.append(f"{counts['run']} running")
-    if counts["stall"]:
-        header_bits.append(f"{counts['stall']} STALLED")
-    if counts["spin"]:
-        header_bits.append(f"{counts['spin']} SPINNING")
-    if counts["lost"]:
-        header_bits.append(f"{counts['lost']} lost")
-    lines.append("muster — " + (" · ".join(header_bits) if header_bits else "fleet idle")
-                 + f" (spin alarm at {spin_threshold} strikes / window)")
+
+    icon = {"RUNNING": "▶", "STARTING": "▶", "PENDING": "…", "STALLED": "⚠",
+            "SPINNING": "↻", "LOST": "✖", "SUCCEEDED": "✓", "FAILED": "✗",
+            "INTERRUPTED": "✂", "CANCEL_REQUESTED": "⏳", "CANCELLED": "✓"}
+
+    def one(n, word):
+        return f"{n} {word}" if n else ""
+
+    header = ", ".join(filter(None, [
+        one(counts["run"], "working"),
+        one(counts["stall"], "stuck"),
+        one(counts["spin"], "failing on repeat"),
+        one(counts["lost"], "gone"),
+    ]))
+    lines: list[str] = [f"muster: {header}" if header else "muster: all quiet — nothing running."]
+
     flights = board.get("flights", [])
     if not flights:
-        lines.append("  no delegated children recorded yet. muster_fanout launches supervised ones;")
-        lines.append("  delegate_task children appear here automatically.")
+        lines.append("start some with muster_fanout, or just delegate work — they all show up here.")
         return "\n".join(lines)
+
     for f in flights:
-        age = last_event_age(f, now)
-        age_s = f"{age:.0f}s" if age is not None else "-"
-        goal = f.get("goal") if show_goals else ""
-        tool = f" · in {f['tool_in_flight']}" if f.get("tool_in_flight") else ""
-        tokens = f"{f.get('prompt_tokens', 0)}in/{f.get('completion_tokens', 0)}out"
-        line = (f"  {f.get('state', '?'):<9} {f.get('source', '?'):<8} {(f.get('id') or '')[:8]} "
-                f"{f.get('role') or '-'} · {age_s} since event{tool} · {f.get('tool_calls', 0)} tools · "
-                f"{f.get('api_calls', 0)} api · {tokens}")
-        if f.get("requeue_count", 0) >= spin_threshold:
-            line += f" · SPIN x{f['requeue_count']}"
-        lines.append(line)
-        if goal:
-            lines.append(f"      └ {goal}")
-        if f.get("state") == "LOST":
-            lines.append("      └ gateway died before this child finished; marked lost on boot")
+        state = f.get("state", "?")
+        short = (f.get("id") or "")[:8]
+        goal = (f.get("goal") or "") if show_goals else ""
+        mark = icon.get(state, "·")
+        lines.append(f"{mark} {state.lower()}  “{short}”  {goal}".rstrip())
+        if state == "RUNNING":
+            if f.get("tool_in_flight"):
+                lines.append(f"    right now: running the “{f['tool_in_flight']}” tool · {f.get('tool_calls', 0)} done so far · {f.get('prompt_tokens', 0)}→{f.get('completion_tokens', 0)} tokens")
+            else:
+                lines.append(f"    busy · {f.get('tool_calls', 0)} tool calls · {f.get('prompt_tokens', 0)}→{f.get('completion_tokens', 0)} tokens")
+        elif state == "STALLED":
+            lines.append("    silent for a while, nothing in progress — probably stuck. stop it, or give it a moment.")
+        elif state == "SPINNING":
+            lines.append(f"    tried {f.get('requeue_count', 0)} times and failed every time — something upstream is broken.")
+        elif state == "LOST":
+            lines.append("    hermes crashed before this one finished. found at restart — it needs a re-run.")
+        elif state == "CANCELLED":
+            lines.append("    stopped on purpose.")
+        elif state == "SUCCEEDED":
+            lines.append("    finished.")
+        # only muster's own kids can be stopped / messaged
+        if state in ("RUNNING", "STALLED", "SPINNING") and f.get("handle_json"):
+            lines.append(f"    stop it: /muster stop {short}   ·   send it a note: /muster note {short} <message>")
+
     aux_rows = board.get("aux", [])
     if aux_rows:
-        lines.append("  auxiliary (compression/titling/vision on the parent):")
-        now = board.get("generated_at") or time.time()
-        for a in aux_rows[:6]:
-            last = a.get("last_event_at") or a.get("updated_at")
-            try:
-                age = f"{max(0.0, now - float(last)):.0f}s" if last else "-"
-            except (TypeError, ValueError):
-                age = "-"
-            lines.append(f"    {a.get('state', '?'):<9} {a.get('goal') or a.get('task') or 'aux'} · "
-                         f"{a.get('api_calls', 0)} calls · "
-                         f"{a.get('prompt_tokens', 0)}in/{a.get('completion_tokens', 0)}out · "
-                         f"{age} ago")
+        tokens = sum(a.get("prompt_tokens", 0) for a in aux_rows)
+        outs = sum(a.get("completion_tokens", 0) for a in aux_rows)
+        lines.append(f"  (hermes' own background chores used {tokens}→{outs} tokens)")
     return "\n".join(lines)
