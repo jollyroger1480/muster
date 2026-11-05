@@ -66,7 +66,13 @@ def register(ctx: Any) -> None:
         _REGISTERED.clear()
 
     ledger = _open_ledger(ctx)
-    ledger.reconcile_lost()
+    # reconcile only when this is a NEW process. A hot reload inside a live
+    # gateway must not mark still-running workers as gone.
+    import uuid as _uuid
+    proc_token = globals().setdefault("_PROC_TOKEN", _uuid.uuid4().hex)
+    if ledger.get_meta("proc_token") != proc_token:
+        ledger.reconcile_lost()
+        ledger.set_meta("proc_token", proc_token)
 
     def get_config(key: str, default: Any = None) -> Any:
         try:
@@ -176,7 +182,10 @@ def register(ctx: Any) -> None:
         # records as neutral (issue #149110, pain A). Deliberate user cancels
         # are not failures: a cancel then relaunch of the same goal is normal
         # operation, so only organic FAILED/INTERRUPTED outcomes strike.
-        organic_failure = (state in ("FAILED", "INTERRUPTED")
+        # only organic FAILED outcomes strike. INTERRUPTED is excluded: core's
+        # own quiet-child interrupt also lands here and is housekeeping, not a
+        # failure signal.
+        organic_failure = (state == "FAILED"
                            and flight.get("last_event_kind") != "cancel_requested")
         if organic_failure and flight.get("batch_key"):
             ledger.record_requeue(flight["batch_key"],

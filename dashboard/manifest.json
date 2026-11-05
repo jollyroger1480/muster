@@ -1,7 +1,7 @@
 {
   "name": "muster",
   "label": "Muster",
-  "description": "Air-traffic control for delegated subagent fleets — live fleet board, stall/lost/spin alarms, cancel and steer.",
+  "description": "See what your AI helpers are actually doing \u2014 working, stuck, failing on repeat, or gone. Stop a stuck one or send it a message.",
   "icon": "Radar",
   "version": "1.0.0",
   "tab": {

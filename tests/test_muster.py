@@ -230,7 +230,8 @@ def test_stall_recovery():
 def test_chip_counts():
     board = {"counts": {"RUNNING": 2, "SPINNING": 1, "STALLED": 1, "LOST": 1, "SUCCEEDED": 5}}
     counts = analysis.chip_counts(board)
-    assert counts == {"run": 3, "stall": 1, "lost": 1, "spin": 1}
+    # SPINNING is its own number — never also counted as working
+    assert counts == {"run": 2, "stall": 1, "lost": 1, "spin": 1}
 
 
 # ---------------------------------------------------------------- registration
@@ -426,7 +427,7 @@ def test_board_renders_states(ctx):
     ctx.hooks["subagent_start"](parent_session_id="p1", child_session_id="c1",
                                 child_subagent_id="s1", child_role="leaf", child_goal="a job")
     table = ops.command("")
-    assert "RUNNING" in table or "run" in table
+    assert "working" in table
     assert "a job" in table
 
 
@@ -572,6 +573,32 @@ def test_cancelled_row_settles_without_ghost(ctx):
     rows = [f for f in board["flights"] if f["goal"] == "settle me"]
     assert len(rows) == 1, f"ghost row created: {len(rows)} rows for one child"
     assert rows[0]["state"] == "CANCELLED"
+
+
+def test_board_contract_matches_the_uis(ledger):
+    """/board is consumed by the pane, the chip and the dashboard tab. This
+    locks the contract: raw `counts` for muster_status, `chip` for the UIs,
+    and last_event_age as an AGE IN SECONDS (not a timestamp)."""
+    import time as _t
+    fid = ledger.record_flight({"source": "observed", "state": "RUNNING",
+                                "child_session_id": "ui1", "role": "leaf", "goal": "ui contract"})
+    ledger.touch_by_session("ui1", "api", prompt_tokens=10, completion_tokens=2)
+    board = ledger.board()
+    compact = muster_fleet_compact(board)
+
+    # chip aggregate with the four plain numbers
+    chip = compact["chip"]
+    assert set(chip) == {"run", "stall", "lost", "spin"}
+    assert chip["run"] == 1
+    # raw state counts also present (muster_status consumers)
+    assert board["counts"].get("RUNNING") == 1
+    # last_event_age is an age: bounded by wall-clock since the touch
+    row = compact["flights"][0]
+    age = row["last_event_age"]
+    assert age is not None and 0 <= age < 60, f"age must be seconds, got {age}"
+    # and every UI-consumed key exists
+    for key in ("short_id", "has_handle", "state", "goal", "tool_calls", "prompt_tokens"):
+        assert key in row
 
 
 def test_pending_muster_rows_age_out(ctx):

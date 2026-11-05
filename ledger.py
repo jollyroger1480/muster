@@ -80,6 +80,10 @@ CREATE TABLE IF NOT EXISTS requeues (
     flight_id TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_requeues_batch ON requeues(batch_key, at);
+CREATE TABLE IF NOT EXISTS meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT
+);
 """
 
 # Allowlisted columns hooks may write, with coercion and per-column caps.
@@ -403,6 +407,20 @@ class Ledger:
 
         self._submit(_op, wait=True)
         return bool(result and result[0])
+
+    def get_meta(self, key: str) -> Optional[str]:
+        def _op(conn: sqlite3.Connection) -> Optional[str]:
+            row = conn.execute("SELECT value FROM meta WHERE key = :k", {"k": key}).fetchone()
+            return row[0] if row else None
+
+        return self._read(_op)
+
+    def set_meta(self, key: str, value: str) -> None:
+        self._submit(lambda conn: conn.execute(
+            "INSERT INTO meta (key, value) VALUES (:k, :v) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            {"k": key, "v": value},
+        ))
 
     def live_flights(self) -> list[dict[str, Any]]:
         """Every live flight row, newest activity first — no LIMIT, so the

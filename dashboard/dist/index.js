@@ -14,17 +14,17 @@
   const cn = (SDK.utils && SDK.utils.cn) || function () { return Array.prototype.slice.call(arguments).filter(Boolean).join(" "); };
 
   const STATE_STYLE = {
-    RUNNING: ["bg-emerald-400", "text-emerald-400", "border-emerald-500/30", "RUN"],
-    STARTING: ["bg-sky-400", "text-sky-400", "border-sky-500/30", "START"],
-    PENDING: ["bg-sky-400/70", "text-sky-400/90", "border-sky-500/20", "QUEUE"],
-    STALLED: ["bg-amber-400", "text-amber-400", "border-amber-500/40", "STALLED"],
-    SPINNING: ["bg-red-400", "text-red-400", "border-red-500/40", "SPINNING"],
-    LOST: ["bg-zinc-400", "text-zinc-400", "border-zinc-500/30", "LOST"],
-    SUCCEEDED: ["bg-emerald-400/60", "text-emerald-400/80", "border-emerald-500/20", "DONE"],
-    FAILED: ["bg-red-400/70", "text-red-400/90", "border-red-500/25", "FAILED"],
-    INTERRUPTED: ["bg-orange-400/70", "text-orange-400/90", "border-orange-500/25", "CUT"],
-    CANCEL_REQUESTED: ["bg-orange-400", "text-orange-400", "border-orange-500/40", "CANCELLING"],
-    CANCELLED: ["bg-zinc-400/70", "text-zinc-400/90", "border-zinc-500/25", "CANCELLED"],
+    RUNNING: ["bg-emerald-400", "text-emerald-400", "border-emerald-500/30", "working"],
+    STARTING: ["bg-sky-400", "text-sky-400", "border-sky-500/30", "starting"],
+    PENDING: ["bg-sky-400/70", "text-sky-400/90", "border-sky-500/20", "queued"],
+    STALLED: ["bg-amber-400", "text-amber-400", "border-amber-500/40", "stuck"],
+    SPINNING: ["bg-red-400", "text-red-400", "border-red-500/40", "failing on repeat"],
+    LOST: ["bg-zinc-400", "text-zinc-400", "border-zinc-500/30", "gone"],
+    SUCCEEDED: ["bg-emerald-400/60", "text-emerald-400/80", "border-emerald-500/20", "done"],
+    FAILED: ["bg-red-400/70", "text-red-400/90", "border-red-500/25", "failed"],
+    INTERRUPTED: ["bg-orange-400/70", "text-orange-400/90", "border-orange-500/25", "cut short"],
+    CANCEL_REQUESTED: ["bg-orange-400", "text-orange-400", "border-orange-500/40", "stopping…"],
+    CANCELLED: ["bg-zinc-400/70", "text-zinc-400/90", "border-zinc-500/25", "stopped"],
   };
 
   function stateStyle(state) {
@@ -91,7 +91,7 @@
         React.createElement("span", null, (f.tool_calls || 0) + " tools"),
         React.createElement("span", null, (f.api_calls || 0) + " api"),
         React.createElement("span", null, fmtTokens(f.prompt_tokens) + "→" + fmtTokens(f.completion_tokens) + " tok"),
-        (f.requeue_count || 0) >= 2 ? React.createElement("span", { className: "text-red-400 font-medium" }, "spin x" + f.requeue_count) : null,
+        (f.requeue_count || 0) >= 2 ? React.createElement("span", { className: "text-red-400 font-medium" }, "failed " + f.requeue_count + "×") : null,
         f.tool_in_flight ? React.createElement("span", { className: "text-sky-400" }, "in " + f.tool_in_flight) : null,
         f.source && f.source !== "muster" ? React.createElement("span", { className: "ml-auto" }, f.source === "observed" ? "hermes-spawned · read-only" : f.source) : null
       ),
@@ -109,7 +109,7 @@
           )
         : null,
       !canAct && f.has_handle === false && LIVE.has(f.state)
-        ? React.createElement("div", { className: "text-[0.625rem] text-muted-foreground" }, "spawned by the model · cancel from the parent")
+        ? React.createElement("div", { className: "text-[0.625rem] text-muted-foreground" }, "started by hermes itself — stop it from the chat that started it")
         : null,
       msg ? React.createElement("div", { className: "text-[0.625rem] text-muted-foreground" }, msg) : null
     );
@@ -131,7 +131,7 @@
       return function () { clearInterval(t); };
     }, [refresh]);
 
-    const counts = (board && board.counts) || {};
+    const counts = (board && board.chip) || {};
     const flights = (board && board.flights) || [];
     const showGoals = !board || board.show_goals !== false;
     const serviceAvailable = !board || board.service_available !== false;

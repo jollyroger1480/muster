@@ -30,8 +30,8 @@ combines a **durable fleet ledger** with **derived health states** and **actions
 | | agent-station · protean-subagent-viewer | hermes-teammates | core `/agents` stall monitor | **muster** |
 |---|---|---|---|---|
 | Shows delegated children | ✔ (focused chat) | ✔ (its own roster) | progress bar | ✔ **every** child, fleet-wide |
-| STALLED vs RUNNING | read-only statuses (running/done/interrupted/errored) | — | interrupts on no progress (in-memory, per-run) | ✔ durable badge, in-flight-tool exempt, self-healing |
-| SPINNING (requeue-spin alarm) | ✗ | ✗ | ✗ | ✔ strike count per goal |
+| stuck vs working | read-only statuses (running/done/interrupted/errored) | — | interrupts on no progress (in-memory, per-run) | ✔ durable badge, in-flight-tool exempt, self-healing |
+| "failing on repeat" alarm | ✗ | ✗ | ✗ | ✔ repeat-failure count per job |
 | **LOST after gateway death** | ✗ (rows vanish or lie) | ✗ | ✗ | ✔ reconciled on boot, with the reason |
 | Cancel/steer from the view | ✗ ("never steers, interrupts, or spawns") | ✔ — but only children *it* launched | parent-side interrupt | ✔ muster children; observed rows honestly read-only |
 | Kanban worker-exit strike feed | ✗ | ✗ | ✗ | ✔ |
@@ -42,8 +42,8 @@ Core already interrupts quiet background children (`/agents` shows
 adds what issue
 [#149110](https://github.com/NousResearch/hermes-agent/issues/149110) asks for
 and none of the above provide: the durable record (a dead host emits no
-`subagent_stop`), the derived states, the spin alarm, and fleet-level actions.
-Different lineage from the plugins above; cancel/steer uses the same public
+`subagent_stop`), the derived states, the repeat-failure alarm, and fleet-level actions.
+Different lineage from the plugins above; Stop/Message uses the same public
 lifecycle API hermes-teammates uses, applied to a fleet ledger rather than a
 predefined roster.
 
@@ -56,36 +56,35 @@ predefined roster.
 | **Dashboard tab** | The same board in the web dashboard (read + act) |
 | **`/muster`** | Fleet table in any chat, including messaging platforms; `/muster stop <id>` and `/muster note <id> <text>` act on muster workers (`cancel`/`steer` still work as aliases) |
 | **`muster_status` tool** | Fleet JSON for the agent itself, so it can report health honestly |
-| **`muster_fanout` tool** | Launch supervised children through the public subagent lifecycle API — those children get real cancel/steer because muster keeps their handles |
+| **`muster_fanout` tool** | Launch background workers through the public subagent lifecycle API — those workers get real Stop/Message because muster keeps their handles |
 
 ## States
 
-- `RUNNING` — events are flowing.
-- `STALLED` — no API or tool event for `stall_seconds` (default 300) **and**
-  no tool call in flight. A badge, never an auto-kill; it self-heals the
-  moment activity resumes.
-- `SPINNING` — the same goal (parent+role+goal key) accumulated
-  `spin_threshold` (default 3) failed/rate-limited outcomes within
-  `spin_window_seconds` (default 1800). Core treats each requeue as neutral;
-  muster makes the count visible.
-- `LOST` — rows left live by a dead process are reconciled to `LOST` at the
-  next boot. Never relaunched by muster.
-- Terminal: `SUCCEEDED` / `FAILED` / `INTERRUPTED` / `CANCEL_REQUESTED` /
-  `CANCELLED`.
+Every worker gets one plain answer:
+
+- **working** — events are flowing. The row shows its tool calls and token count.
+- **stuck** — silent for `stall_seconds` (default 300) with nothing in progress.
+  A badge, never an auto-kill; it clears itself the moment work resumes.
+- **failing on repeat** — the same job failed `spin_threshold` times (default 3)
+  within `spin_window_seconds` (default 30 minutes). Hermes treats each retry
+  as no big deal; muster keeps count so you don't have to.
+- **gone** — hermes crashed before the worker finished. Found and marked at the
+  next start-up. Its work needs a re-run decision.
+- **done / failed / stopped** — finished states. "Stopped" means someone pressed
+  Stop (it finishes its current step, then quits safely).
 
 ## Control model
 
-- **Muster-launched workers** (via `muster_fanout`) carry a subagent-lifecycle
-  handle: **Stop** (cooperative — the worker finishes its current step, then
-  quits safely) and **Message** (delivered at its next step) work from the
-  pane, the dashboard and chat.
-- **Model-spawned `delegate_task` children are observed, read-only.** Muster
-  never claims actions it cannot take; their rows say "cancel from the
-  parent".
-- **Kanban tasks** appear as rows from `kanban_task_claimed` /
-  `kanban_task_completed` / `kanban_task_blocked` / `on_kanban_worker_exited`;
-  `rate_limited` worker exits feed the spin alarm. Muster does not touch the
-  dispatcher.
+- **Workers you started** (`muster_fanout`) carry a handle: press **Stop**
+  (cooperative — the worker finishes its current step, then quits safely) or
+  **Message** (delivered at its next step), from the pane, the dashboard, or
+  chat (`/muster stop <id>`, `/muster note <id> <message>`).
+- **Workers hermes started itself are watched only.** Muster never touches
+  them and says so instead of pretending — stop those from the chat that
+  started them.
+- **Kanban tasks** show up too (claim/complete/blocked/worker exit), and
+  rate-limited worker exits feed the failing-on-repeat count. Muster does not
+  touch the dispatcher.
 
 ## Disclosures
 
@@ -125,10 +124,10 @@ predefined roster.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `stall_seconds` | `300` | Quiet period before the STALLED badge (in-flight tools exempt) |
-| `spin_threshold` | `3` | Failed/rate-limited strikes per goal that trip SPINNING |
-| `spin_window_seconds` | `1800` | Sliding window for spin strikes |
-| `show_goals` | `true` | Show truncated goals in pane/table/chip tooltip |
+| `stall_seconds` | `300` | How long a worker can sit silent before muster calls it stuck (in-flight tools exempt) |
+| `spin_threshold` | `3` | Repeat failures per job before muster flags it "failing on repeat" |
+| `spin_window_seconds` | `1800` | How far back repeat failures are counted |
+| `show_goals` | `true` | Show each worker's job description in the pane |
 | `board_rows` | `120` | Rows returned by the board API and `/muster` |
 | `chip_enabled` | `true` | Status-bar chip in the Desktop app |
 

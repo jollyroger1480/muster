@@ -1,8 +1,0 @@
-LICENSE
-README.md
-pyproject.toml
-muster.egg-info/PKG-INFO
-muster.egg-info/SOURCES.txt
-muster.egg-info/dependency_links.txt
-muster.egg-info/top_level.txt
-tests/test_muster.py

@@ -41,7 +41,7 @@ config_schema:
     type: int
     default: 120
     label: Board rows
-    description: Maximum flight rows returned by the board API and /muster table.
+    description: How many workers to show in the pane and /muster.
   chip_enabled:
     type: bool
     default: true

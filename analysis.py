@@ -94,11 +94,11 @@ def last_event_age(flight: dict[str, Any], now: float) -> Optional[float]:
 
 
 def chip_counts(board: dict[str, Any]) -> dict[str, int]:
-    """Aggregate a board() payload into the four numbers the chip shows."""
+    """Aggregate a board() payload into the four numbers the chip shows.
+    SPINNING is reported only as `spin` — never also counted as working."""
     counts = board.get("counts") or {}
-    running = sum(counts.get(s, 0) for s in ("PENDING", "STARTING", "RUNNING", "SPINNING"))
     return {
-        "run": running,
+        "run": sum(counts.get(s, 0) for s in ("PENDING", "STARTING", "RUNNING")),
         "stall": counts.get("STALLED", 0),
         "lost": counts.get("LOST", 0),
         "spin": counts.get("SPINNING", 0),

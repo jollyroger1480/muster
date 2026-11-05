@@ -292,7 +292,8 @@ def _compact_board(board: dict[str, Any], *, show_goals: bool) -> dict[str, Any]
             "completion_tokens": a.get("completion_tokens", 0),
             "last_event_age": last_event_age(a, now),
         })
-    return {"counts": counts, "live_total": board.get("live_total", 0),
+    return {"counts": board.get("counts", {}), "chip": counts,
+            "live_total": board.get("live_total", 0),
             "requeues_1h": board.get("requeues_1h", 0), "flights": flights, "aux": aux}
 
 
@@ -320,12 +321,16 @@ def render_table(board: dict[str, Any], *, show_goals: bool, spin_threshold: int
         lines.append("start some with muster_fanout, or just delegate work — they all show up here.")
         return "\n".join(lines)
 
+    label = {"RUNNING": "working", "STARTING": "starting", "PENDING": "queued",
+             "STALLED": "stuck", "SPINNING": "failing on repeat", "LOST": "gone",
+             "SUCCEEDED": "done", "FAILED": "failed", "INTERRUPTED": "cut short",
+             "CANCEL_REQUESTED": "stopping…", "CANCELLED": "stopped"}
     for f in flights:
         state = f.get("state", "?")
         short = (f.get("id") or "")[:8]
         goal = (f.get("goal") or "") if show_goals else ""
         mark = icon.get(state, "·")
-        lines.append(f"{mark} {state.lower()}  “{short}”  {goal}".rstrip())
+        lines.append(f"{mark} {label.get(state, state.lower())}  “{short}”  {goal}".rstrip())
         if state == "RUNNING":
             if f.get("tool_in_flight"):
                 lines.append(f"    right now: running the “{f['tool_in_flight']}” tool · {f.get('tool_calls', 0)} done so far · {f.get('prompt_tokens', 0)}→{f.get('completion_tokens', 0)} tokens")

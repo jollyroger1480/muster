@@ -47,9 +47,10 @@ function stateStyle(state) {
 
 const LIVE_FOR_ACTIONS = new Set(['PENDING', 'STARTING', 'RUNNING', 'STALLED', 'SPINNING', 'CANCEL_REQUESTED'])
 
-function ageOf(ts) {
-  if (!ts) return '–'
-  const s = Math.max(0, Math.floor(Date.now() / 1000 - ts))
+// takes an AGE IN SECONDS (board serves last_event_age as an age, not a timestamp)
+function ageOf(ageSeconds) {
+  if (ageSeconds == null) return '–'
+  const s = Math.max(0, Math.floor(ageSeconds))
   if (s < 60) return `${s}s`
   if (s < 3600) return `${Math.floor(s / 60)}m${s % 60 ? (s % 60) + 's' : ''}`
   return `${Math.floor(s / 3600)}h${Math.floor((s % 3600) / 60)}m`
@@ -63,11 +64,11 @@ function fmtTokens(n) {
 }
 
 function Chip({ board }) {
-  const counts = (board && board.counts) || {}
-  const run = (counts.PENDING || 0) + (counts.STARTING || 0) + (counts.RUNNING || 0) + (counts.SPINNING || 0)
-  const stall = counts.STALLED || 0
-  const spin = counts.SPINNING || 0
-  const lost = counts.LOST || 0
+  const counts = (board && board.chip) || {}
+  const run = counts.run || 0
+  const stall = counts.stall || 0
+  const spin = counts.spin || 0
+  const lost = counts.lost || 0
   const alarm = stall + spin + lost
   const parts = []
   if (run) parts.push(`${run} working`)
@@ -201,11 +202,11 @@ function FleetPane({ ctx }) {
       host.notify({ kind: res && res.ok ? 'info' : 'warning', message: (res && res.message) || 'done' })
       load()
     } catch (e) {
-      host.notify({ kind: 'error', message: `muster: ${verb} failed — ${String((e && e.message) || e)}` })
+      host.notify({ kind: 'error', message: `that didn't work (${String((e && e.message) || e)}). try again in a second.` })
     }
   }, [ctx, load])
 
-  const counts = (board && board.counts) || {}
+  const counts = (board && board.chip) || {}
   const serviceAvailable = !board || board.service_available !== false
   const flights = (board && board.flights) || []
   const showGoals = !board || board.show_goals !== false

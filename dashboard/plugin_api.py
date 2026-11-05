@@ -191,7 +191,7 @@ async def action_cancel(payload: dict[str, Any]) -> dict[str, Any]:
     try:
         result = service.cancel(handle, reason=reason)
     except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "message": f"cancel failed: {type(exc).__name__}"}
+        return {"ok": False, "message": f"that didn't work ({type(exc).__name__}). try again in a second."}
     if bool(getattr(result, "unknown_handle", False)):
         return {"ok": False, "message": "that worker's stop button died with the last restart — it shows as gone after start-up"}
     if bool(getattr(result, "already_terminal", False)):
@@ -222,7 +222,7 @@ async def action_steer(payload: dict[str, Any]) -> dict[str, Any]:
     try:
         accepted = bool(service.steer(handle, text))
     except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "message": f"steer failed: {type(exc).__name__}"}
+        return {"ok": False, "message": f"that didn't work ({type(exc).__name__}). try again in a second."}
     if not accepted:
         return {"ok": False, "message": "it can't take messages right now (just finished, or already gone)"}
     ledger.update_flight(flight["id"], {"last_event_kind": "steered"})
