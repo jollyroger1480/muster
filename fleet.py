@@ -82,7 +82,9 @@ class FleetOps:
         goals = args.get("goals") or ([args["goal"]] if args.get("goal") else [])
         if isinstance(goals, str):
             goals = [g.strip() for g in goals.split(";") if g.strip()]
-        goals = [truncate(g, GOAL_MAX_CHARS) for g in goals if truncate(g, GOAL_MAX_CHARS)]
+        if not isinstance(goals, list):
+            goals = []
+        goals = [g.strip()[:GOAL_MAX_CHARS] for g in goals if isinstance(g, str) and g.strip()]
         if not goals:
             return json.dumps({"error": "muster_fanout needs 'goals': a list of short goal strings."})
 
@@ -223,6 +225,11 @@ class FleetOps:
                             "(gateway restarted?). The row will be marked LOST on next boot.")
                 if terminal:
                     return f"muster: {flight['id'][:8]} already finished; nothing to cancel."
+                if not accepted:
+                    # the lifecycle API refused — never fake progress: leave the
+                    # row's state untouched and say so.
+                    detail = str(getattr(result, "diagnostic", "") or "refused by the lifecycle service")
+                    return f"muster: cancel REFUSED for {flight['id'][:8]} — {detail}"
                 self.ledger.update_flight(flight["id"], {
                     "state": "CANCEL_REQUESTED", "last_event_kind": "cancel_requested",
                 })
@@ -330,10 +337,15 @@ def render_table(board: dict[str, Any], *, show_goals: bool, spin_threshold: int
     aux_rows = board.get("aux", [])
     if aux_rows:
         lines.append("  auxiliary (compression/titling/vision on the parent):")
+        now = board.get("generated_at") or time.time()
         for a in aux_rows[:6]:
-            age = a.get("last_event_age")
-            lines.append(f"    {a.get('state', '?'):<9} {a.get('task') or 'aux'} · {a.get('api_calls', 0)} calls · "
+            last = a.get("last_event_at") or a.get("updated_at")
+            try:
+                age = f"{max(0.0, now - float(last)):.0f}s" if last else "-"
+            except (TypeError, ValueError):
+                age = "-"
+            lines.append(f"    {a.get('state', '?'):<9} {a.get('goal') or a.get('task') or 'aux'} · "
+                         f"{a.get('api_calls', 0)} calls · "
                          f"{a.get('prompt_tokens', 0)}in/{a.get('completion_tokens', 0)}out · "
-                         f"{age:.0f}s ago" if age is not None else
-                         f"    {a.get('state', '?'):<9} {a.get('task') or 'aux'}")
+                         f"{age} ago")
     return "\n".join(lines)

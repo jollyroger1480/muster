@@ -15,11 +15,39 @@ Two failure modes bite every fleet operator (see
 1. **Silent deaths.** A child that dies on its first provider call is recorded
    as a neutral `rate_limited` and requeued; the dispatcher can spin for hours
    producing zero tokens with no escalation anywhere. A dead gateway emits no
-   `subagent_stop` at all, so a "running" row outlives its process.
+   `subagent_stop` at all, so a "running" row outlives its process. Core's
+   `/agents` stall monitor interrupts quiet children mid-run, but nothing
+   durable survives the process, and nothing distinguishes stalled from
+   spinning from lost after the fact.
 2. **Stall blindness.** Nothing distinguishes "working quietly" from "hung" —
    and a tool call in flight looks exactly like a wedge.
 
 Muster closes both from the observer side, without patching core.
+
+## How it differs from adjacent plugins
+
+The catalog has good watchers and a roster-steerer. Muster is the only one that
+combines a **durable fleet ledger** with **derived health states** and **actions**:
+
+| | agent-station · protean-subagent-viewer | hermes-teammates | core `/agents` stall monitor | **muster** |
+|---|---|---|---|---|
+| Shows delegated children | ✔ (focused chat) | ✔ (its own roster) | progress bar | ✔ **every** child, fleet-wide |
+| STALLED vs RUNNING | read-only statuses (running/done/interrupted/errored) | — | interrupts on no progress (in-memory, per-run) | ✔ durable badge, in-flight-tool exempt, self-healing |
+| SPINNING (requeue-spin alarm) | ✗ | ✗ | ✗ | ✔ strike count per goal |
+| **LOST after gateway death** | ✗ (rows vanish or lie) | ✗ | ✗ | ✔ reconciled on boot, with the reason |
+| Cancel/steer from the view | ✗ ("never steers, interrupts, or spawns") | ✔ — but only children *it* launched | parent-side interrupt | ✔ muster children; observed rows honestly read-only |
+| Kanban worker-exit strike feed | ✗ | ✗ | ✗ | ✔ |
+| Cross-process durable ledger | ✗ | ✗ | ✗ | ✔ sqlite, pane/dashboard/chat agree |
+
+Core already interrupts quiet background children (`/agents` shows
+`stalling · no progress … — interrupting`) — muster does not replace that; it
+adds what issue
+[#149110](https://github.com/NousResearch/hermes-agent/issues/149110) asks for
+and none of the above provide: the durable record (a dead host emits no
+`subagent_stop`), the derived states, the spin alarm, and fleet-level actions.
+Different lineage from the plugins above; cancel/steer uses the same public
+lifecycle API hermes-teammates uses, applied to a fleet ledger rather than a
+predefined roster.
 
 ## What you get
 
@@ -126,7 +154,7 @@ hermes plugins install muster
 ## Development
 
 ```bash
-python -m pytest tests/ -q        # 40+ unit tests, no Hermes needed
+python -m pytest tests/ -q        # 28 unit tests (incl. review regressions), no Hermes needed
 ```
 
 License: MIT.

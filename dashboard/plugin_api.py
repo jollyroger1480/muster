@@ -1,18 +1,21 @@
 """Muster dashboard backend — routes mounted at /api/plugins/muster/.
 
-Reads the same sqlite ledger the agent-side hooks write (WAL mode makes
-cross-process reads safe) and, when this process is the one that owns the
-subagent-lifecycle registry, executes cancel/steer actions. In a split
-deployment where the dashboard server is not the gateway process, the
-lifecycle service reports UNKNOWN_HANDLE and the route answers with a clear
-"actions unavailable here" instead of pretending.
+Serves the COMPACT board shape the Desktop pane and dashboard tab consume
+(``fleet._compact_board``), reads the same sqlite ledger the agent-side hooks
+write (WAL mode makes cross-process reads safe) through a single cached
+Ledger instance, and, when this process runs agent turns, executes
+cancel/steer through the public subagent lifecycle API. Refusals are reported
+honestly — never recorded as progress.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import logging
-import os
+import sys
+import threading
+import types
 from pathlib import Path
 from typing import Any
 
@@ -21,11 +24,42 @@ from fastapi import APIRouter
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-_LIVE_STATES = ("PENDING", "STARTING", "RUNNING", "STALLED", "SPINNING")
+BOARD_ROWS_MAX = 500
 
 
 def _plugin_root() -> Path:
     return Path(__file__).resolve().parent.parent
+
+
+# One Ledger per dashboard process: the per-request construction leaked a
+# sqlite connection + writer thread + atexit hook on every poll.
+_LEDGER: Any = None
+_LEDGER_LOCK = threading.Lock()
+
+
+def _load_plugin_module(name: str):
+    """Import a plugin-local module under a synthetic package namespace so its
+    relative imports (``from .analysis import …``) resolve — never by sys.path
+    injection, which would expose generic top-level names (``ledger``,
+    ``paths``) to the whole web-server process."""
+    root = _plugin_root()
+    pkg_name = "_muster_plugin"
+    pkg = sys.modules.get(pkg_name)
+    if pkg is None:
+        pkg = types.ModuleType(pkg_name)
+        pkg.__path__ = [str(root)]
+        sys.modules[pkg_name] = pkg
+    full = f"{pkg_name}.{name}"
+    module = sys.modules.get(full)
+    if module is not None:
+        return module
+    spec = importlib.util.spec_from_file_location(full, root / f"{name}.py")
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load muster plugin module {name}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[full] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def _load_config() -> dict[str, Any]:
@@ -44,6 +78,7 @@ def _load_config() -> dict[str, Any]:
         "spin_window_seconds": 1800,
         "show_goals": True,
         "board_rows": 120,
+        "chip_enabled": True,
     }
     out = dict(defaults)
     for key in defaults:
@@ -52,19 +87,23 @@ def _load_config() -> dict[str, Any]:
                 out[key] = type(defaults[key])(settings[key])
             except (TypeError, ValueError):
                 continue
+    out["board_rows"] = max(10, min(int(out["board_rows"]), BOARD_ROWS_MAX))
     return out
 
 
 def _ledger():
-    import sys
+    global _LEDGER
+    if _LEDGER is None:
+        with _LEDGER_LOCK:
+            if _LEDGER is None:
+                ledger_mod = _load_plugin_module("ledger")
+                paths_mod = _load_plugin_module("paths")
+                _LEDGER = ledger_mod.Ledger(paths_mod.muster_data_dir() / "fleet.sqlite")
+    return _LEDGER
 
-    root = str(_plugin_root())
-    if root not in sys.path:
-        sys.path.insert(0, root)
-    from ledger import Ledger  # noqa: E402 - plugin-local module
-    from paths import muster_data_dir  # noqa: E402
 
-    return Ledger(muster_data_dir() / "fleet.sqlite")
+def _fleet():
+    return _load_plugin_module("fleet")
 
 
 def _service():
@@ -93,15 +132,31 @@ async def health() -> dict[str, Any]:
 
 @router.get("/board")
 async def board() -> dict[str, Any]:
+    """Compact board shape — the same one muster_status serves — so the pane,
+    the chip and the web tab all render ids, ages and action buttons."""
     cfg = _load_config()
+    empty = {"generated_at": 0, "counts": {}, "live_total": 0, "requeues_1h": 0,
+             "flights": [], "aux": []}
     try:
-        data = _ledger().board(limit=cfg["board_rows"], spin_window_seconds=cfg["spin_window_seconds"])
+        raw = _ledger().board(limit=cfg["board_rows"], spin_window_seconds=cfg["spin_window_seconds"])
     except Exception as exc:  # noqa: BLE001
         logger.debug("muster: board read failed", exc_info=True)
+        return {**empty, "error": f"ledger unavailable: {type(exc).__name__}",
+                "show_goals": cfg["show_goals"], "service_available": False,
+                "chip_enabled": cfg["chip_enabled"]}
+    try:
+        # The UI contract: compact rows only. Never fall back to raw sqlite
+        # rows — a shape the pane cannot render is worse than an explicit
+        # error payload.
+        data = _fleet()._compact_board(raw, show_goals=cfg["show_goals"])
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("muster: board compaction failed", exc_info=True)
         return {"generated_at": 0, "counts": {}, "live_total": 0, "requeues_1h": 0,
-                "flights": [], "aux": [], "error": f"ledger unavailable: {type(exc).__name__}",
-                "show_goals": cfg["show_goals"], "service_available": False}
+                "flights": [], "aux": [], "error": f"board compaction failed: {type(exc).__name__}",
+                "show_goals": cfg["show_goals"], "service_available": False,
+                "chip_enabled": cfg["chip_enabled"]}
     data["show_goals"] = cfg["show_goals"]
+    data["chip_enabled"] = cfg["chip_enabled"]
     data["service_available"] = _service() is not None
     return data
 
@@ -138,15 +193,17 @@ async def action_cancel(payload: dict[str, Any]) -> dict[str, Any]:
         result = service.cancel(handle, reason=reason)
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "message": f"cancel failed: {type(exc).__name__}"}
-    unknown = bool(getattr(result, "unknown_handle", False))
-    if unknown:
+    if bool(getattr(result, "unknown_handle", False)):
         return {"ok": False, "message": "handle not known to this process (gateway restarted?) — "
                                         "the row will be marked LOST on next boot"}
-    terminal = bool(getattr(result, "already_terminal", False))
-    if not terminal:
-        ledger.update_flight(flight["id"], {"state": "CANCEL_REQUESTED", "last_event_kind": "cancel_requested"})
-    return {"ok": True, "message": ("already finished" if terminal
-                                    else "cancel accepted — child interrupts at its next safe boundary")}
+    if bool(getattr(result, "already_terminal", False)):
+        return {"ok": True, "message": "already finished"}
+    if not bool(getattr(result, "accepted", False)):
+        # refused by the lifecycle service — never fake progress
+        detail = str(getattr(result, "diagnostic", "") or "refused by the lifecycle service")
+        return {"ok": False, "message": f"cancel REFUSED for {flight['id'][:8]} — {detail}"}
+    ledger.update_flight(flight["id"], {"state": "CANCEL_REQUESTED", "last_event_kind": "cancel_requested"})
+    return {"ok": True, "message": "cancel accepted — child interrupts at its next safe boundary"}
 
 
 @router.post("/action/steer")

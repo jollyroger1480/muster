@@ -241,6 +241,7 @@ export default {
     const ChipRender = () => {
       const [, force] = useState(0)
       chipRef.current = force
+      if (chipBoard && chipBoard.chip_enabled === false) return null
       return jsx(Chip, { board: chipBoard })
     }
     ctx.register({

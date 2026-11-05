@@ -177,6 +177,13 @@ class Ledger:
         self._write_conn.execute("PRAGMA synchronous=NORMAL")
         self._write_conn.executescript(_SCHEMA)
         self._write_conn.commit()
+        # Dedicated WAL read connection: readers never share a connection with
+        # the writer thread (each sqlite3 connection is used by one thread only).
+        self._read_conn = sqlite3.connect(
+            str(self.path), check_same_thread=False, timeout=busy_timeout_ms / 1000.0
+        )
+        self._read_conn.row_factory = sqlite3.Row
+        self._read_conn.execute("PRAGMA journal_mode=WAL")
         self._read_lock = threading.Lock()
         self._queue: "queue.Queue[Optional[tuple[Callable[[sqlite3.Connection], None], Optional[tuple]]]]" = queue.Queue()
         self._closed = threading.Event()
@@ -188,10 +195,10 @@ class Ledger:
         atexit.register(self._drain_at_exit)
 
     def _drain_at_exit(self) -> None:
-        try:
-            self._queue.join()
-        except Exception:  # noqa: BLE001 - interpreter shutdown, best effort
-            pass
+        """Bounded drain: never hang interpreter shutdown on a wedged writer."""
+        deadline = time.time() + 3.0
+        while self._queue.unfinished_tasks and time.time() < deadline:
+            time.sleep(0.02)
 
     # -- writer ----------------------------------------------------------
 
@@ -231,11 +238,20 @@ class Ledger:
     def close(self) -> None:
         if self._closed.is_set():
             return
+        # Drain pending writes BEFORE the sentinel: anything enqueued after the
+        # sentinel would never reach task_done() and could hang join()s forever.
+        deadline = time.time() + 3.0
+        while self._queue.unfinished_tasks and time.time() < deadline:
+            time.sleep(0.02)
         self._closed.set()
         self._queue.put(None)
         self._writer.join(timeout=5)
         try:
             self._write_conn.close()
+        except sqlite3.Error:
+            pass
+        try:
+            self._read_conn.close()
         except sqlite3.Error:
             pass
 
@@ -367,6 +383,41 @@ class Ledger:
 
         return self._read(_op)
 
+    def claim_flight(self, flight_id: str, updates: dict[str, Any]) -> bool:
+        """Atomically claim a PENDING row (attach race safety): applies
+        ``updates`` only if the row is still PENDING. Returns True on claim."""
+        clean = coerce_updates(updates)
+        if not clean:
+            return False
+        clean["updated_at"] = time.time()
+        claimed = threading.Event()
+        result: list[bool] = []
+
+        def _op(conn: sqlite3.Connection) -> None:
+            cur = conn.execute(
+                f"UPDATE flights SET {', '.join(k + ' = :' + k for k in clean)} "
+                "WHERE id = :fid AND state = 'PENDING'",
+                {**clean, "fid": flight_id},
+            )
+            result.append(cur.rowcount > 0)
+
+        self._submit(_op, wait=True)
+        return bool(result and result[0])
+
+    def live_flights(self) -> list[dict[str, Any]]:
+        """Every live flight row, newest activity first — no LIMIT, so the
+        stall pass can age out and badge rows beyond the board window."""
+        def _op(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+            return [
+                dict(r) for r in conn.execute(
+                    "SELECT * FROM flights WHERE kind = 'flight' "
+                    "AND state IN ('PENDING','STARTING','RUNNING','STALLED','SPINNING') "
+                    "ORDER BY COALESCE(last_event_at, started_at, updated_at) DESC"
+                )
+            ]
+
+        return self._read(_op) or []
+
     # -- maintenance -------------------------------------------------------
 
     def reconcile_lost(self) -> int:
@@ -391,14 +442,13 @@ class Ledger:
     # -- reads --------------------------------------------------------------
 
     def _read(self, fn: Callable[[sqlite3.Connection], Any]) -> Any:
-        # read-your-writes: drain pending writes before reading
-        try:
-            self._queue.join()
-        except RuntimeError:  # joining from the writer thread itself
-            pass
+        # read-your-writes: bounded drain of pending writes before reading
+        deadline = time.time() + 2.0
+        while self._queue.unfinished_tasks and time.time() < deadline:
+            time.sleep(0.005)
         with self._read_lock:
             try:
-                return fn(self._write_conn)
+                return fn(self._read_conn)
             except sqlite3.Error:
                 logger.debug("muster: ledger read failed", exc_info=True)
                 return None

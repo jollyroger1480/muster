@@ -449,3 +449,122 @@ def test_no_raw_payload_columns_persisted(ledger: Ledger):
     for banned in ("request", "conversation_history", "args", "result", "error_body", "prompt"):
         assert banned not in ledger_mod._TEXT_COLS
         assert banned not in ledger_mod._INT_COLS
+
+
+# ---------------------------------------------------------------- review regressions
+
+
+def test_unknown_stop_keeps_state_and_does_not_strike(ctx):
+    """Payload drift must not kill a healthy RUNNING row or inflate spin."""
+    service = FakeService()
+    ctx2 = FakeCtx(service=service)
+    muster.register(ctx2)
+    ops = muster._REGISTERED[0]["ops"]
+    out = json.loads(ctx2.tools["muster_fanout"]["handler"]({"goals": ["steady child"]}))
+    fid = out["launched"][0]["flight_id"]
+    ctx2.hooks["subagent_start"](parent_session_id="parent-1", child_session_id="c-u",
+                                 child_subagent_id="s-u", child_role="leaf", child_goal="steady child")
+    # stop with NO recognizable status field -> UNKNOWN
+    ctx2.hooks["subagent_stop"](parent_session_id="parent-1", child_session_id="c-u",
+                                child_role="leaf", child_summary="still fine")
+    row = ops.ledger.find_flight(fid)
+    assert row["state"] == "RUNNING", "UNKNOWN stop must keep the previous state"
+    assert row["last_event_kind"] == "stop_unparsed"
+    assert ops.ledger.count_requeues_window(row["batch_key"], 1800) == 0, "UNKNOWN must not strike"
+
+
+def test_observed_children_reach_spinning(ctx):
+    """Model-spawned delegate children (the #149110 silent-spin case) must
+    alarm too, not just muster launches."""
+    muster.register(ctx)
+    ops = muster._REGISTERED[0]["ops"]
+    for i in range(3):
+        ctx.hooks["subagent_start"](parent_session_id="p1", child_session_id=f"o{i}",
+                                    child_subagent_id=f"so-{i}", child_role="leaf",
+                                    child_goal="requeue me")
+        ctx.hooks["subagent_stop"](parent_session_id="p1", child_session_id=f"o{i}",
+                                   child_role="leaf", status="failed")
+    ctx.hooks["subagent_start"](parent_session_id="p1", child_session_id="o3",
+                                child_subagent_id="so-3", child_role="leaf", child_goal="requeue me")
+    board = ops.ledger.board()
+    row = next(f for f in board["flights"] if f["child_session_id"] == "o3")
+    assert row["state"] == "SPINNING" and row["source"] == "observed"
+
+
+def test_cancel_refusal_is_not_recorded_as_progress(ctx):
+    """A lifecycle cancel refusal must leave the row state untouched."""
+    class RefusingService(FakeService):
+        def cancel(self, handle, *, reason):
+            class R:
+                accepted = False
+                already_terminal = False
+                unknown_handle = False
+            return R()
+
+    ctx2 = FakeCtx(service=RefusingService())
+    muster.register(ctx2)
+    out = json.loads(ctx2.tools["muster_fanout"]["handler"]({"goals": ["refused child"]}))
+    fid = out["launched"][0]["flight_id"]
+    ctx2.hooks["subagent_start"](parent_session_id="parent-1", child_session_id="c-r",
+                                 child_subagent_id="s-r", child_role="leaf", child_goal="refused child")
+    text = ctx2.commands["muster"](f"cancel {fid[:8]}")
+    assert "REFUSED" in text
+    row = ops_row = muster._REGISTERED[0]["ops"].ledger.find_flight(fid)
+    assert row["state"] == "RUNNING", "refusal must not move the row to CANCEL_REQUESTED"
+
+
+def test_cancel_requested_rows_do_not_strike(ctx):
+    """Cancel-then-relaunch of the same goal is normal operation, not spin."""
+    service = FakeService()
+    ctx2 = FakeCtx(service=service)
+    muster.register(ctx2)
+    ops = muster._REGISTERED[0]["ops"]
+    out = json.loads(ctx2.tools["muster_fanout"]["handler"]({"goals": ["relaunched goal"]}))
+    fid = out["launched"][0]["flight_id"]
+    ctx2.hooks["subagent_start"](parent_session_id="parent-1", child_session_id="c-x",
+                                 child_subagent_id="s-x", child_role="leaf", child_goal="relaunched goal")
+    ctx2.commands["muster"](f"cancel {fid[:8]} deliberate")
+    ctx2.hooks["subagent_stop"](parent_session_id="parent-1", child_session_id="c-x",
+                                child_role="leaf", status="interrupted")
+    row = ops.ledger.find_flight(fid)
+    assert ops.ledger.count_requeues_window(row["batch_key"], 1800) == 0, "user cancel must not strike"
+
+
+def test_compact_board_shape_serves_the_uis(ledger):
+    """The /board contract: short_id, has_handle and last_event_age exist —
+    the Desktop pane and dashboard tab render buttons from exactly these."""
+    fid = ledger.record_flight({"source": "muster", "state": "RUNNING",
+                                "child_session_id": "s1", "role": "leaf", "goal": "g",
+                                "handle_json": json.dumps({"subagent_id": "x"})})
+    ledger.touch_by_session("s1", "api")
+    board = ledger.board()
+    compact = muster_fleet_compact(board)
+    row = compact["flights"][0]
+    for key in ("id", "short_id", "state", "role", "goal", "has_handle",
+                "tool_in_flight", "last_event_age", "tool_calls", "api_calls",
+                "prompt_tokens", "completion_tokens", "requeue_count"):
+        assert key in row, f"compact board row missing {key}"
+    assert row["short_id"] == fid[:8] and row["has_handle"] is True
+    assert row["last_event_age"] is not None
+    assert "handle_json" not in row, "raw handles must not ship to the browser"
+
+
+def muster_fleet_compact(board):
+    from muster.fleet import _compact_board
+    return _compact_board(board, show_goals=True)
+
+
+def test_pending_muster_rows_age_out(ctx):
+    """A muster launch whose start never arrives stops ghosting the run count."""
+    service = FakeService()
+    ctx2 = FakeCtx(service=service)
+    muster.register(ctx2)
+    ops = muster._REGISTERED[0]["ops"]
+    out = json.loads(ctx2.tools["muster_fanout"]["handler"]({"goals": ["ghost launch"]}))
+    fid = out["launched"][0]["flight_id"]
+    # never send subagent_start; force the row old and run one pass
+    ops.ledger.update_flight(fid, {"started_at": time.time() - 9999})
+    ops.ledger._queue.join()
+    muster._stall_loop_pass(ops)
+    row = ops.ledger.find_flight(fid)
+    assert row["state"] == "FAILED" and row["exit_reason"] == "launch_never_started"

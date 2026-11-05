@@ -52,6 +52,19 @@ def register(ctx: Any) -> None:
     """Plugin entrypoint. Builds the ledger, replays dead-process rows to
     LOST, starts the stall daemon, and registers hooks, tools and commands."""
 
+    # Hot reload / re-registration: tear down the previous generation first —
+    # its daemon thread and writer connection are otherwise leaked.
+    if _REGISTERED:
+        try:
+            _REGISTERED[0]["stop"].set()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            _REGISTERED[0]["ledger"].close()
+        except Exception:  # noqa: BLE001
+            pass
+        _REGISTERED.clear()
+
     ledger = _open_ledger(ctx)
     ledger.reconcile_lost()
 
@@ -80,12 +93,13 @@ def register(ctx: Any) -> None:
         )
         strikes = ledger.count_requeues_window(batch, ops.spin_window_seconds)
         if child_session_id:
-            # attach: a muster PENDING row for this (role, goal) that has not
-            # started yet claims the first subagent_start seen.
+            # attach: a muster PENDING row for this (role, goal) claims the
+            # first subagent_start seen — atomically, so two concurrent start
+            # events cannot both claim the same row.
             attach = _find_pending_muster(ledger, parent_session_id, role, goal)
             if attach is not None:
                 state = "SPINNING" if analysis.spin_key_active(strikes, ops.spin_threshold) else "RUNNING"
-                ledger.update_flight(attach["id"], {
+                claimed = ledger.claim_flight(attach["id"], {
                     "child_session_id": child_session_id,
                     "subagent_id": truncate(payload.get("child_subagent_id"), 128) or None,
                     "parent_session_id": parent_session_id,
@@ -96,10 +110,12 @@ def register(ctx: Any) -> None:
                     "last_event_kind": "start",
                     "requeue_count": strikes,
                 })
-                return
+                if claimed:
+                    return
+                # lost the claim race: fall through and record an observed row
         ledger.record_flight({
             "source": "observed",
-            "state": "RUNNING",
+            "state": ("SPINNING" if analysis.spin_key_active(strikes, ops.spin_threshold) else "RUNNING"),
             "parent_session_id": parent_session_id,
             "child_session_id": child_session_id or None,
             "subagent_id": truncate(payload.get("child_subagent_id"), 128) or None,
@@ -117,11 +133,21 @@ def register(ctx: Any) -> None:
             return
         flight = _find_live_by_child(ledger, child_session_id)
         state = analysis.stop_status_to_state(payload)
+        if state == "UNKNOWN":
+            # Unrecognized payload shape: per the analysis contract we keep the
+            # previous state and never strike — payload drift must not kill a
+            # healthy row or inflate the spin alarm. Log for diagnosis only.
+            logger.debug("muster: subagent_stop with unrecognized status fields for %s", child_session_id)
+            if flight is not None:
+                ledger.update_flight(flight["id"], {
+                    "last_event_at": now, "last_event_kind": "stop_unparsed",
+                })
+            return
         if flight is None:
             # stop for a child we never saw start (plugin loaded mid-flight).
             ledger.record_flight({
                 "source": "observed",
-                "state": state if state != "UNKNOWN" else "SUCCEEDED",
+                "state": state,
                 "child_session_id": child_session_id,
                 "parent_session_id": truncate(payload.get("parent_session_id"), 128),
                 "role": truncate(payload.get("child_role"), 64),
@@ -137,9 +163,8 @@ def register(ctx: Any) -> None:
                 "last_event_kind": "stop",
             })
             return
-        terminal = state if state != "UNKNOWN" else "FAILED"
         ledger.update_flight(flight["id"], {
-            "state": terminal,
+            "state": state,
             "ended_at": now,
             "last_event_at": now,
             "last_event_kind": "stop",
@@ -148,10 +173,14 @@ def register(ctx: Any) -> None:
         })
         # A failed terminal outcome is a strike against this batch goal —
         # repeated rate-limited requeues are exactly the "silent spin" core
-        # records as neutral (issue #149110, pain A).
-        if terminal in ("FAILED", "INTERRUPTED") and flight.get("batch_key"):
+        # records as neutral (issue #149110, pain A). Deliberate user cancels
+        # are not failures: a cancel then relaunch of the same goal is normal
+        # operation, so only organic FAILED/INTERRUPTED outcomes strike.
+        organic_failure = (state in ("FAILED", "INTERRUPTED")
+                           and flight.get("last_event_kind") != "cancel_requested")
+        if organic_failure and flight.get("batch_key"):
             ledger.record_requeue(flight["batch_key"],
-                                  truncate(payload.get("status") or payload.get("exit_reason") or terminal, 64),
+                                  truncate(payload.get("status") or payload.get("exit_reason") or state, 64),
                                   flight["id"])
 
     def on_pre_tool_call(**payload: Any) -> None:
@@ -261,19 +290,28 @@ def register(ctx: Any) -> None:
             return
         existing = ledger.find_by_task(task_id)
         if existing is not None:
+            board = truncate(payload.get("board"), 64) or None
+            batch = batch_key_for("kanban", truncate(payload.get("board"), 64), task_id)
+            strikes = ledger.count_requeues_window(batch, ops.spin_window_seconds)
             ledger.update_flight(existing["id"], {
-                "state": "RUNNING", "last_event_at": time.time(), "last_event_kind": "claimed",
-                "board": truncate(payload.get("board"), 64) or None,
+                "state": ("SPINNING" if analysis.spin_key_active(strikes, ops.spin_threshold) else "RUNNING"),
+                "last_event_at": time.time(), "last_event_kind": "claimed",
+                "board": board,
+                # a re-claim is a fresh run: drop the previous run's residue
+                "ended_at": 0, "summary": "", "exit_reason": "",
             })
             return
+        board = truncate(payload.get("board"), 64) or None
+        batch = batch_key_for("kanban", truncate(payload.get("board"), 64), task_id)
+        strikes = ledger.count_requeues_window(batch, ops.spin_window_seconds)
         ledger.record_flight({
             "source": "kanban",
-            "state": "RUNNING",
+            "state": ("SPINNING" if analysis.spin_key_active(strikes, ops.spin_threshold) else "RUNNING"),
             "role": "kanban",
             "goal": truncate(payload.get("task_id"), GOAL_MAX_CHARS),  # task id only; task text is not in the payload
-            "batch_key": batch_key_for("kanban", truncate(payload.get("board"), 64), task_id),
+            "batch_key": batch,
             "task_id": task_id,
-            "board": truncate(payload.get("board"), 64) or None,
+            "board": board,
             "last_event_kind": "claimed",
         })
 
@@ -439,12 +477,25 @@ def _find_live_by_child(ledger: Ledger, child_session_id: str) -> dict[str, Any]
 
 
 def _stall_loop_pass(ops: FleetOps) -> None:
-    """One stall pass: derive STALLED badges from event ages; self-heal stale ones."""
+    """One stall pass over EVERY live row (not just the board window):
+    derive STALLED badges, self-heal stale ones, age out launches whose
+    start event never arrived."""
     ledger = ops.ledger
     now = time.time()
     threshold = ops.stall_seconds
-    board = ledger.board(limit=500, spin_window_seconds=ops.spin_window_seconds)
-    for flight in board.get("flights", []):
+    pending_cutoff = max(120.0, threshold)
+    for flight in ledger.live_flights():
+        state = flight.get("state")
+        if state == "PENDING" and flight.get("source") == "muster":
+            # a muster launch that never started (refused/lost race): stop
+            # ghosting the run count after the cutoff.
+            started = flight.get("started_at") or 0
+            if now - float(started or 0) > pending_cutoff:
+                ledger.update_flight(flight["id"], {
+                    "state": "FAILED", "ended_at": now,
+                    "exit_reason": "launch_never_started",
+                })
+            continue
         if analysis.is_stalled(flight, now, threshold):
             ledger.update_flight(flight["id"], {
                 "state": "STALLED", "last_event_kind": flight.get("last_event_kind") or "stalled",
