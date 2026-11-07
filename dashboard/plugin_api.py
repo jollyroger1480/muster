@@ -153,8 +153,10 @@ async def board() -> dict[str, Any]:
         fleet_mod = _fleet()
 
         def _cost(prompt_tokens: int, completion_tokens: int):
-            pin, pout = cfg.get("price_input_per_mtok", 0) or 0, cfg.get("price_output_per_mtok", 0) or 0
-            if pin <= 0 and pout <= 0:
+            pin = max(0.0, float(cfg.get("price_input_per_mtok", 0) or 0))
+            pout = max(0.0, float(cfg.get("price_output_per_mtok", 0) or 0))
+            if pin <= 0 or pout <= 0:
+                # both rates required — a one-sided rate invents a $0 side
                 return None
             return (prompt_tokens / 1e6) * pin + (completion_tokens / 1e6) * pout
 

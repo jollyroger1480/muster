@@ -77,6 +77,11 @@ class FakeCtx:
         self.commands[name] = handler
         return FakeRegistration("command", name)
 
+    def register_automation_blueprint(self, key, **_kw):
+        self.blueprints = getattr(self, "blueprints", set())
+        self.blueprints.add(key)
+        return FakeRegistration("blueprint", key)
+
 
 class FakeHandle:
     def __init__(self, subagent_id="sub-1", parent_session_id="parent-1"):
@@ -438,7 +443,7 @@ def test_no_network_imports():
     """Static guard: the plugin's own modules never import networking."""
     forbidden = ("requests", "httpx", "socket", "urllib.request", "aiohttp")
     root = Path(__file__).resolve().parent.parent
-    for py in root.glob("*.py"):
+    for py in list(root.glob("*.py")) + list((root / "dashboard").glob("*.py")):
         source = py.read_text()
         for mod in forbidden:
             assert f"import {mod}" not in source, f"{py.name} imports {mod}"
@@ -658,10 +663,26 @@ def test_cost_and_digest(ctx):
     compact2 = muster_fleet_compact(board, cost_fn=ops.cost_usd)
     assert compact2["flights"][0]["cost_usd"] is None
     assert compact2["cost_usd_total"] is None
-    # digest mentions fleet, tokens and the watch blueprint
+    # digest: fleet line, tokens, watch pointer
     text = ops.digest("")
     assert "fleet:" in text and "watch" in text.lower()
     assert "1,000,000" in text
+    # both blueprints registered (watch + morning)
+    assert getattr(ctx, "blueprints", set()) == {"watch", "morning"}
+    # a stuck row appears in the digest WITH its short id and a stop hint
+    ctx.hooks["subagent_start"](parent_session_id="p1", child_session_id="c-st",
+                                child_subagent_id="sst", child_role="leaf", child_goal="hangy job")
+    ctx.hooks["pre_tool_call"](session_id="c-st", tool_name="bash")
+    ctx.hooks["post_tool_call"](session_id="c-st")  # tool completes -> not exempt
+    ledger = ops.ledger
+    board_before = ledger.board()
+    fid_st = board_before["flights"][0]["id"]
+    ledger.update_flight(fid_st, {"last_event_at": time.time() - 999})
+    time.sleep(0.2)
+    muster._stall_loop_pass(ops)
+    text = ops.digest("")
+    assert fid_st[:8] in text and "stop" in text.lower()
+    assert "nothing needs you" not in text
 
 
 def test_pending_muster_rows_age_out(ctx):

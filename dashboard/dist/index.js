@@ -152,6 +152,7 @@
         React.createElement("span", null, "stuck " + (counts.stall || 0)),
         React.createElement("span", null, "failing " + (counts.spin || 0)),
         React.createElement("span", null, "gone " + (counts.lost || 0)),
+        (board && board.cost_usd_total != null) ? React.createElement("span", null, "$" + board.cost_usd_total.toFixed(2) + " total") : null,
         React.createElement("span", null, "requeues 1h " + (board ? board.requeues_1h : 0))
       ),
       err ? React.createElement("div", { className: "rounded border border-red-500/30 px-2 py-1.5 text-xs text-red-400" }, "backend unavailable: " + err) : null,

@@ -80,7 +80,8 @@ class FleetOps:
     def cost_usd(self, prompt_tokens: int, completion_tokens: int) -> Optional[float]:
         """Worker cost at the USER'S OWN rates (settings). 0/absent rates mean
         muster never invents a price — it shows tokens only."""
-        if self.price_in <= 0 and self.price_out <= 0:
+        if self.price_in <= 0 or self.price_out <= 0:
+            # both rates must be set — a one-sided rate invents a $0 side
             return None
         return (prompt_tokens / 1e6) * self.price_in + (completion_tokens / 1e6) * self.price_out
 
@@ -208,45 +209,51 @@ class FleetOps:
     # ---- /muster digest: the foreman's morning report -----------------------
 
     def digest(self, _raw: str = "") -> str:
-        board = self.ledger.board(limit=self.board_rows, spin_window_seconds=self.spin_window_seconds)
+        data = self.ledger.digest_data(self.spin_window_seconds, self.spin_threshold)
+        c = self.ledger.board(limit=1, spin_window_seconds=self.spin_window_seconds).get("counts", {})
         from .analysis import chip_counts
-        c = chip_counts(board)
-        now = board.get("generated_at") or time.time()
+        chip = chip_counts({"counts": c, "lost_24h": None})
         lines: list[str] = []
         parts = []
-        if c["run"]:
-            parts.append(f"{c['run']} working")
-        if c["stall"]:
-            parts.append(f"{c['stall']} stuck")
-        if c["spin"]:
-            parts.append(f"{c['spin']} failing on repeat")
-        if c["lost"]:
-            parts.append(f"{c['lost']} gone")
+        if chip["run"]:
+            parts.append(f"{chip['run']} working")
+        if chip["stall"]:
+            parts.append(f"{chip['stall']} stuck")
+        if chip["spin"]:
+            parts.append(f"{chip['spin']} failing on repeat")
+        if chip["lost"]:
+            parts.append(f"{chip['lost']} gone")
         lines.append("fleet: " + (", ".join(parts) if parts else "all quiet"))
 
-        spend_in = sum(f.get("prompt_tokens", 0) for f in board.get("flights", []))
-        spend_out = sum(f.get("completion_tokens", 0) for f in board.get("flights", []))
-        cost = self.cost_usd(spend_in, spend_out)
-        tokens = f"{spend_in:,} in / {spend_out:,} out tokens"
-        lines.append(f"tokens: {tokens}" + (f" (~${cost:.2f} at your rates)" if cost is not None else ""))
+        cost = self.cost_usd(data["tokens_in"], data["tokens_out"])
+        lines.append(f"tokens: {data['tokens_in']:,} in / {data['tokens_out']:,} out"
+                     + (f" (~${cost:.2f} at your rates)" if cost is not None else ""))
 
-        needs = [f for f in board.get("flights", [])
-                 if f.get("state") in ("STALLED", "SPINNING", "LOST")]
+        needs = data["needs"]
         if needs:
             lines.append("")
             lines.append("needs a decision:")
+            word = {"STALLED": "stuck", "SPINNING": "failing on repeat", "LOST": "gone"}
             for f in needs[:5]:
-                state = {"STALLED": "stuck", "SPINNING": "failing on repeat", "LOST": "gone"}.get(f.get("state"), "?")
-                line = f"  - {state}: {(f.get('goal') or '')[:60]}"
-                if f.get("state") == "LOST":
-                    line += " (re-run it? it will not come back on its own)"
-                elif f.get("state") == "STALLED" and f.get("handle_json"):
-                    line += f" (/muster stop {(f.get('id') or '')[:8]})"
+                state = f.get("state", "?")
+                short = (f.get("id") or "")[:8]
+                owned = bool(f.get("handle_json"))
+                line = f"  - {word.get(state, state.lower())}: \u201c{(f.get('goal') or '')[:48]}\u201d [{short}]"
+                if state == "LOST":
+                    line += " \u2014 re-run it; it will not come back on its own"
+                elif state == "FAILED":
+                    line += " \u2014 failed on repeat; re-run it when the cause is fixed"
+                elif owned:
+                    line += f" \u2014 /muster stop {short}"
+                else:
+                    line += " \u2014 stop it from the chat that started it (muster watches only)"
                 lines.append(line)
+            if len(needs) > 5:
+                lines.append(f"  \u2026 and {len(needs) - 5} more")
         else:
             lines.append("nothing needs you right now.")
         lines.append("")
-        lines.append("watch it for you: /blueprint muster:watch  ·  morning report: /blueprint muster:morning")
+        lines.append("watch it for you: /blueprint muster:watch  \u00b7  morning report: /blueprint muster:morning")
         return "\n".join(lines)
 
     # -- /muster command -------------------------------------------------------
@@ -263,6 +270,7 @@ class FleetOps:
                 "  /muster                      who's working, stuck or gone\n"
                 "  /muster stop <id>            stop one of your workers\n"
                 "  /muster note <id> <message>  send a running worker a message\n"
+                "  /muster-digest               the foreman's report (status, spend, decisions)\n"
                 "  /muster help                 this text"
             )
         return self._table()

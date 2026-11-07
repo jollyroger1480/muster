@@ -446,13 +446,14 @@ def register(ctx: Any) -> None:
                 title="Muster fleet watch",
                 description="Check every worker hermes is running; only speak up when one is stuck, failing on repeat, or gone.",
                 category="general",
-                schedule_template="*/{minutes} * * * *",
+                schedule_template="{interval_min} * * * *",
                 prompt_template=("Check the muster fleet now with the muster_status tool. "
                                  "If a worker is stuck, failing on repeat, or gone, tell me in one short line per worker "
-                                 "with its id and what to do (stop it, re-run it, or leave it). "
-                                 "If everything is working, reply exactly: fleet all clear."),
+                                 "with its short id and what to do (stop it, re-run it, or leave it). "
+                                 "If everything is working, reply exactly: [SILENT]"),
                 slots=[
-                    {"name": "minutes", "type": "text", "label": "Check every how many minutes?", "default": "20"},
+                    {"name": "interval_min", "type": "enum", "label": "Check every how many minutes?",
+                     "default": "20", "options": ["10", "20", "30", "60"]},
                 ],
                 tags=["muster", "watch"],
             )
@@ -462,9 +463,9 @@ def register(ctx: Any) -> None:
                 description="Every morning: what did the agent fleet do yesterday — status, spend, and what needs a decision.",
                 category="general",
                 schedule_template="{minute} {hour} * * *",
-                prompt_template=("Give me the muster morning report: run the muster_status tool and summarize in plain language — "
-                                 "who is still working, what finished overnight, anything stuck / failing on repeat / gone "
-                                 "(with its id and the one decision I need to make), and total tokens (and cost if rates are set). "
+                prompt_template=("Produce the muster fleet report: run the muster_status tool, then summarize in plain language — "
+                                 "who is still working, what finished, anything stuck / failing on repeat / gone "
+                                 "(with its short id and the one decision I need to make), and total tokens (and cost if rates are set). "
                                  "Keep it under 10 lines."),
                 slots=[
                     {"name": "time", "type": "time", "label": "What time?", "default": "08:30"},

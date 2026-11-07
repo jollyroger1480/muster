@@ -422,6 +422,33 @@ class Ledger:
             {"k": key, "v": value},
         ))
 
+    def digest_data(self, spin_window_seconds: float = 1800.0,
+                    spin_threshold: int = 3) -> dict[str, Any]:
+        """Everything the foreman report needs, over the WHOLE table (not the
+        board page): state counts, token totals, and every stuck / failing /
+        gone row with its short id — so the header can never say 'gone' while
+        the decision list says 'nothing needs you'."""
+        def _op(conn: sqlite3.Connection) -> dict[str, Any]:
+            counts = {r[0]: int(r[1]) for r in conn.execute(
+                "SELECT state, COUNT(*) FROM flights WHERE kind = 'flight' GROUP BY state")}
+            tin = int(conn.execute(
+                "SELECT COALESCE(SUM(prompt_tokens), 0) FROM flights WHERE kind = 'flight'").fetchone()[0])
+            tout = int(conn.execute(
+                "SELECT COALESCE(SUM(completion_tokens), 0) FROM flights WHERE kind = 'flight'").fetchone()[0])
+            cutoff = time.time() - max(1.0, float(spin_window_seconds))
+            needs = [dict(r) for r in conn.execute(
+                "SELECT * FROM flights WHERE kind = 'flight' AND ("
+                "state IN ('STALLED','SPINNING','LOST') OR "
+                "(state = 'FAILED' AND batch_key IN (SELECT batch_key FROM requeues "
+                "WHERE at >= :cutoff GROUP BY batch_key HAVING COUNT(*) >= :thr))) "
+                "ORDER BY CASE state WHEN 'LOST' THEN 0 WHEN 'SPINNING' THEN 1 "
+                "WHEN 'STALLED' THEN 2 ELSE 3 END, "
+                "COALESCE(last_event_at, started_at, updated_at) DESC LIMIT 12",
+                {"cutoff": cutoff, "thr": max(1, int(spin_threshold))})]
+            return {"counts": counts, "tokens_in": tin, "tokens_out": tout, "needs": needs}
+
+        return self._read(_op)
+
     def live_flights(self) -> list[dict[str, Any]]:
         """Every live flight row, newest activity first — no LIMIT, so the
         stall pass can age out and badge rows beyond the board window."""

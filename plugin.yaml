@@ -46,8 +46,8 @@ config_schema:
     type: float
     default: 0
     label: Your input price ($ per 1M tokens)
-    description: Set your blended input rate and muster shows what each worker
-      costs. Leave 0 to show tokens only — muster never invents a price.
+    description: Your blended input rate. Both rates must be set for costs
+      to show. Leave 0 to show tokens only — muster never invents a price.
   price_output_per_mtok:
     type: float
     default: 0
