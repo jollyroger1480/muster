@@ -433,6 +433,46 @@ def register(ctx: Any) -> None:
         ctx.register_command("muster", ops.command,
                              description="Who's still running? (working / stuck / gone, with stop + note)",
                              args_hint="[stop|note <id> ...]")
+        try:
+            ctx.register_command("muster-digest", ops.digest,
+                                 description="Muster morning report: fleet status, spend, what needs a decision.")
+        except Exception:  # noqa: BLE001 - digest is additive
+            pass
+        # fill-in-the-blanks automations: the user schedules them, hermes delivers
+        # them to any chat. This is how muster watches the fleet FOR you.
+        try:
+            ctx.register_automation_blueprint(
+                "watch",
+                title="Muster fleet watch",
+                description="Check every worker hermes is running; only speak up when one is stuck, failing on repeat, or gone.",
+                category="general",
+                schedule_template="*/{minutes} * * * *",
+                prompt_template=("Check the muster fleet now with the muster_status tool. "
+                                 "If a worker is stuck, failing on repeat, or gone, tell me in one short line per worker "
+                                 "with its id and what to do (stop it, re-run it, or leave it). "
+                                 "If everything is working, reply exactly: fleet all clear."),
+                slots=[
+                    {"name": "minutes", "type": "text", "label": "Check every how many minutes?", "default": "20"},
+                ],
+                tags=["muster", "watch"],
+            )
+            ctx.register_automation_blueprint(
+                "morning",
+                title="Muster morning report",
+                description="Every morning: what did the agent fleet do yesterday — status, spend, and what needs a decision.",
+                category="general",
+                schedule_template="{minute} {hour} * * *",
+                prompt_template=("Give me the muster morning report: run the muster_status tool and summarize in plain language — "
+                                 "who is still working, what finished overnight, anything stuck / failing on repeat / gone "
+                                 "(with its id and the one decision I need to make), and total tokens (and cost if rates are set). "
+                                 "Keep it under 10 lines."),
+                slots=[
+                    {"name": "time", "type": "time", "label": "What time?", "default": "08:30"},
+                ],
+                tags=["muster", "daily"],
+            )
+        except Exception:  # noqa: BLE001 - blueprint registration is additive
+            logger.debug("muster: blueprint registration skipped", exc_info=True)
     except Exception:  # noqa: BLE001
         logger.exception("muster: tool/command registration failed")
 

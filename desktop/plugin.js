@@ -144,6 +144,7 @@ function FlightRow({ flight, serviceAvailable, onAction, showGoals }) {
         jsx('span', { children: `${flight.tool_calls || 0} tools` }),
         jsx('span', { children: `${flight.api_calls || 0} api` }),
         jsx('span', { children: `${fmtTokens(flight.prompt_tokens)}→${fmtTokens(flight.completion_tokens)} tok` }),
+        flight.cost_usd != null ? jsx('span', { style: { color: C.dim }, children: `$${flight.cost_usd < 0.01 && flight.cost_usd > 0 ? flight.cost_usd.toFixed(4) : flight.cost_usd.toFixed(2)}` }) : null,
         (flight.requeue_count || 0) >= 2 ? jsx('span', { style: { color: C.bad }, className: 'font-medium', children: `failed ${flight.requeue_count}×` }) : null,
         flight.source && flight.source !== 'muster' ? jsx('span', { className: 'ml-auto', children: flight.source === 'observed' ? 'hermes-spawned · read-only' : flight.source }) : null,
       ] }),
@@ -216,6 +217,7 @@ function FleetPane({ ctx }) {
     jsxs('div', { className: 'flex items-center gap-2 px-1', children: [
       jsx('span', { className: 'text-xs font-semibold tracking-wide text-(--ui-text-secondary)', children: 'MUSTER' }),
       jsx('span', { className: 'text-[0.625rem] text-(--ui-text-tertiary)', children: 'who\u2019s still running' }),
+      board && board.cost_usd_total != null ? jsx('span', { className: 'text-[0.625rem]', style: { color: C.dim }, children: `~$${board.cost_usd_total.toFixed(2)} total` }) : null,
       jsx('span', { className: 'flex-1' }),
       ((chip.stall || 0) + (chip.spin || 0) + (chip.lost || 0)) > 0
         ? jsx('span', { className: 'rounded px-1.5 py-0.5 text-[0.625rem]', style: { color: C.warn, background: mix(C.warn, 15) }, children: 'needs attention' })

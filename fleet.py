@@ -64,6 +64,27 @@ class FleetOps:
         return bool(self._cfg("show_goals", True))
 
     @property
+    def price_in(self) -> float:
+        try:
+            return max(0.0, float(self._cfg("price_input_per_mtok", 0) or 0))
+        except (TypeError, ValueError):
+            return 0.0
+
+    @property
+    def price_out(self) -> float:
+        try:
+            return max(0.0, float(self._cfg("price_output_per_mtok", 0) or 0))
+        except (TypeError, ValueError):
+            return 0.0
+
+    def cost_usd(self, prompt_tokens: int, completion_tokens: int) -> Optional[float]:
+        """Worker cost at the USER'S OWN rates (settings). 0/absent rates mean
+        muster never invents a price — it shows tokens only."""
+        if self.price_in <= 0 and self.price_out <= 0:
+            return None
+        return (prompt_tokens / 1e6) * self.price_in + (completion_tokens / 1e6) * self.price_out
+
+    @property
     def board_rows(self) -> int:
         try:
             return max(10, int(self._cfg("board_rows", 120)))
@@ -181,7 +202,52 @@ class FleetOps:
 
     def status(self, _args: dict[str, Any]) -> str:
         board = self.ledger.board(limit=self.board_rows, spin_window_seconds=self.spin_window_seconds)
-        return json.dumps(_compact_board(board, show_goals=self.show_goals), default=str)
+        out = _compact_board(board, show_goals=self.show_goals, cost_fn=self.cost_usd)
+        return json.dumps(out, default=str)
+
+    # ---- /muster digest: the foreman's morning report -----------------------
+
+    def digest(self, _raw: str = "") -> str:
+        board = self.ledger.board(limit=self.board_rows, spin_window_seconds=self.spin_window_seconds)
+        from .analysis import chip_counts
+        c = chip_counts(board)
+        now = board.get("generated_at") or time.time()
+        lines: list[str] = []
+        parts = []
+        if c["run"]:
+            parts.append(f"{c['run']} working")
+        if c["stall"]:
+            parts.append(f"{c['stall']} stuck")
+        if c["spin"]:
+            parts.append(f"{c['spin']} failing on repeat")
+        if c["lost"]:
+            parts.append(f"{c['lost']} gone")
+        lines.append("fleet: " + (", ".join(parts) if parts else "all quiet"))
+
+        spend_in = sum(f.get("prompt_tokens", 0) for f in board.get("flights", []))
+        spend_out = sum(f.get("completion_tokens", 0) for f in board.get("flights", []))
+        cost = self.cost_usd(spend_in, spend_out)
+        tokens = f"{spend_in:,} in / {spend_out:,} out tokens"
+        lines.append(f"tokens: {tokens}" + (f" (~${cost:.2f} at your rates)" if cost is not None else ""))
+
+        needs = [f for f in board.get("flights", [])
+                 if f.get("state") in ("STALLED", "SPINNING", "LOST")]
+        if needs:
+            lines.append("")
+            lines.append("needs a decision:")
+            for f in needs[:5]:
+                state = {"STALLED": "stuck", "SPINNING": "failing on repeat", "LOST": "gone"}.get(f.get("state"), "?")
+                line = f"  - {state}: {(f.get('goal') or '')[:60]}"
+                if f.get("state") == "LOST":
+                    line += " (re-run it? it will not come back on its own)"
+                elif f.get("state") == "STALLED" and f.get("handle_json"):
+                    line += f" (/muster stop {(f.get('id') or '')[:8]})"
+                lines.append(line)
+        else:
+            lines.append("nothing needs you right now.")
+        lines.append("")
+        lines.append("watch it for you: /blueprint muster:watch  ·  morning report: /blueprint muster:morning")
+        return "\n".join(lines)
 
     # -- /muster command -------------------------------------------------------
 
@@ -250,10 +316,10 @@ class FleetOps:
 
     def _table(self) -> str:
         board = self.ledger.board(limit=self.board_rows, spin_window_seconds=self.spin_window_seconds)
-        return render_table(board, show_goals=self.show_goals, spin_threshold=self.spin_threshold)
+        return render_table(board, show_goals=self.show_goals, spin_threshold=self.spin_threshold, cost_fn=self.cost_usd)
 
 
-def _compact_board(board: dict[str, Any], *, show_goals: bool) -> dict[str, Any]:
+def _compact_board(board: dict[str, Any], *, show_goals: bool, cost_fn=None) -> dict[str, Any]:
     counts = chip_counts(board)
     now = board.get("generated_at") or time.time()
     flights = []
@@ -280,6 +346,9 @@ def _compact_board(board: dict[str, Any], *, show_goals: bool) -> dict[str, Any]
             "started_at": f.get("started_at"),
             "ended_at": f.get("ended_at"),
         })
+        if cost_fn is not None:
+            cost = cost_fn(f.get("prompt_tokens", 0), f.get("completion_tokens", 0))
+            flights[-1]["cost_usd"] = round(cost, 4) if cost is not None else None
     aux = []
     for a in board.get("aux", []):
         aux.append({
@@ -292,12 +361,17 @@ def _compact_board(board: dict[str, Any], *, show_goals: bool) -> dict[str, Any]
             "completion_tokens": a.get("completion_tokens", 0),
             "last_event_age": last_event_age(a, now),
         })
-    return {"counts": board.get("counts", {}), "chip": counts,
-            "live_total": board.get("live_total", 0),
-            "requeues_1h": board.get("requeues_1h", 0), "flights": flights, "aux": aux}
+    out = {"counts": board.get("counts", {}), "chip": counts,
+           "live_total": board.get("live_total", 0),
+           "requeues_1h": board.get("requeues_1h", 0), "flights": flights, "aux": aux}
+    if cost_fn is not None:
+        total = cost_fn(sum(f.get("prompt_tokens", 0) for f in board.get("flights", [])),
+                        sum(f.get("completion_tokens", 0) for f in board.get("flights", [])))
+        out["cost_usd_total"] = round(total, 4) if total is not None else None
+    return out
 
 
-def render_table(board: dict[str, Any], *, show_goals: bool, spin_threshold: int) -> str:
+def render_table(board: dict[str, Any], *, show_goals: bool, spin_threshold: int, cost_fn=None) -> str:
     counts = chip_counts(board)
     now = board.get("generated_at") or time.time()
 
@@ -349,6 +423,13 @@ def render_table(board: dict[str, Any], *, show_goals: bool, spin_threshold: int
         # only muster's own kids can be stopped / messaged
         if state in ("RUNNING", "STALLED", "SPINNING") and f.get("handle_json"):
             lines.append(f"    stop it: /muster stop {short}   ·   send it a note: /muster note {short} <message>")
+
+    if cost_fn is not None:
+        tin = sum(f.get("prompt_tokens", 0) for f in flights)
+        tout = sum(f.get("completion_tokens", 0) for f in flights)
+        total = cost_fn(tin, tout)
+        if total is not None:
+            lines.append(f"spend so far: ~${total:.2f} ({tin:,} in / {tout:,} out tokens)")
 
     aux_rows = board.get("aux", [])
     if aux_rows:

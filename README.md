@@ -57,6 +57,8 @@ it and delete cleanly.
 | **Status-bar chip** | `muster · 2 working · 1 stuck` — turns amber the moment anything needs attention |
 | **Dashboard tab** | The same board in the web dashboard (same process as the agent = read + act; a split deployment is read-only with a clear note) |
 | **`/muster`** | Fleet table in any chat, including messaging platforms; `/muster stop <id>` and `/muster note <id> <text>` act on muster workers (`cancel`/`steer` still work as aliases) |
+| **`/muster-digest`** | The foreman's report: fleet status, token spend (and cost, at your rates), and the workers that need a decision |
+| **Fleet watch + morning report** | Two fill-in-the-blanks automations (`/blueprint muster:watch`, `/blueprint muster:morning`): muster checks the fleet on your schedule and speaks up in any chat only when something needs you — you stop watching, it watches |
 | **`muster_status` tool** | Fleet JSON for the agent itself, so it can report health honestly |
 | **`muster_fanout` tool** | Launch background workers through the public subagent lifecycle API — those workers get real Stop/Message because muster keeps their handles |
 
@@ -135,6 +137,7 @@ Every worker gets one plain answer:
 | `spin_window_seconds` | `1800` | How far back repeat failures are counted |
 | `show_goals` | `true` | Show each worker's job description in the pane |
 | `board_rows` | `120` | Rows returned by the board API and `/muster` |
+| `price_input_per_mtok` / `price_output_per_mtok` | `0` | **Your own** blended token rates; set both and muster shows what each worker (and the fleet) costs. Leave 0 and it shows tokens only — muster never invents a price |
 | `chip_enabled` | `true` | Status-bar chip in the Desktop app |
 
 ## Compatibility

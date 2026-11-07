@@ -22,6 +22,18 @@ Workers you started with `muster_fanout` can be **stopped** (`/muster stop
 Workers hermes started itself are watched only — muster never touches them
 and says so instead of pretending.
 
+## Money and the morning report
+
+If the user set token rates (`price_input_per_mtok` / `price_output_per_mtok`),
+`muster_status` rows carry `cost_usd` — quote spend when it's material
+("the release checks cost $1.40 so far"). No rates set? Talk tokens, never
+invent prices.
+
+For scheduled care, point the user at the bundled blueprints:
+`/blueprint muster:watch` (checks the fleet every N minutes and only speaks
+up when something is stuck, failing on repeat, or gone) and
+`/blueprint muster:morning` (the daily report: status, spend, decisions).
+
 ## The one rule
 
 **Check `muster_status` before you claim delegated work is done.** Say what

@@ -550,9 +550,9 @@ def test_compact_board_shape_serves_the_uis(ledger):
     assert "handle_json" not in row, "raw handles must not ship to the browser"
 
 
-def muster_fleet_compact(board):
+def muster_fleet_compact(board, cost_fn=None):
     from muster.fleet import _compact_board
-    return _compact_board(board, show_goals=True)
+    return _compact_board(board, show_goals=True, cost_fn=cost_fn)
 
 
 def test_cancelled_row_settles_without_ghost(ctx):
@@ -631,6 +631,37 @@ def test_chip_lost_scoped_to_24h(ledger):
     chip = analysis.chip_counts(board)
     assert board["lost_24h"] == 1, "only the fresh crash counts"
     assert chip["lost"] == 1
+
+
+def test_cost_and_digest(ctx):
+    """God-mode: user-configured rates -> per-worker + fleet cost; digest
+    reports status, spend, and the decisions needed."""
+    muster.register(ctx)
+    ops = muster._REGISTERED[0]["ops"]
+    ops.ctx.settings["price_input_per_mtok"] = 3.0
+    ops.ctx.settings["price_output_per_mtok"] = 15.0
+    ctx.hooks["subagent_start"](parent_session_id="p1", child_session_id="c-cost",
+                                child_subagent_id="sc", child_role="leaf", child_goal="paid job")
+    ctx.hooks["post_api_request"](session_id="c-cost",
+                                  usage={"prompt_tokens": 1_000_000, "completion_tokens": 100_000})
+    time.sleep(0.2)  # let the writer settle (hooks enqueue)
+    board = ops.ledger.board()
+    compact = muster_fleet_compact(board, cost_fn=ops.cost_usd)
+    row = compact["flights"][0]
+    # 1M input @ $3/MTok + 0.1M output @ $15/MTok = $4.50
+    assert row["cost_usd"] is not None and abs(row["cost_usd"] - 4.5) < 0.01, row
+    assert compact["cost_usd_total"] is not None
+    assert compact["cost_usd_total"] is not None
+    # no rates -> no invented price (both must be zero)
+    ops.ctx.settings["price_input_per_mtok"] = 0
+    ops.ctx.settings["price_output_per_mtok"] = 0
+    compact2 = muster_fleet_compact(board, cost_fn=ops.cost_usd)
+    assert compact2["flights"][0]["cost_usd"] is None
+    assert compact2["cost_usd_total"] is None
+    # digest mentions fleet, tokens and the watch blueprint
+    text = ops.digest("")
+    assert "fleet:" in text and "watch" in text.lower()
+    assert "1,000,000" in text
 
 
 def test_pending_muster_rows_age_out(ctx):

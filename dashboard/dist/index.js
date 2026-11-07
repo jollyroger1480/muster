@@ -91,6 +91,7 @@
         React.createElement("span", null, (f.tool_calls || 0) + " tools"),
         React.createElement("span", null, (f.api_calls || 0) + " api"),
         React.createElement("span", null, fmtTokens(f.prompt_tokens) + "→" + fmtTokens(f.completion_tokens) + " tok"),
+        f.cost_usd != null ? React.createElement("span", null, "$" + (f.cost_usd < 0.01 && f.cost_usd > 0 ? f.cost_usd.toFixed(4) : f.cost_usd.toFixed(2))) : null,
         (f.requeue_count || 0) >= 2 ? React.createElement("span", { className: "text-red-400 font-medium" }, "failed " + f.requeue_count + "×") : null,
         f.tool_in_flight ? React.createElement("span", { className: "text-sky-400" }, "in " + f.tool_in_flight) : null,
         f.source && f.source !== "muster" ? React.createElement("span", { className: "ml-auto" }, f.source === "observed" ? "hermes-spawned · read-only" : f.source) : null

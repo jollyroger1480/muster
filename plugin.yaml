@@ -42,6 +42,17 @@ config_schema:
     default: 120
     label: Board rows
     description: How many workers to show in the pane and /muster.
+  price_input_per_mtok:
+    type: float
+    default: 0
+    label: Your input price ($ per 1M tokens)
+    description: Set your blended input rate and muster shows what each worker
+      costs. Leave 0 to show tokens only — muster never invents a price.
+  price_output_per_mtok:
+    type: float
+    default: 0
+    label: Your output price ($ per 1M tokens)
+    description: Your blended output rate. Both prices must be set for costs to show.
   chip_enabled:
     type: bool
     default: true
