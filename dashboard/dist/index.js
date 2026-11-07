@@ -142,7 +142,7 @@
     return React.createElement("div", { className: "flex flex-col gap-4 p-4 max-w-3xl mx-auto" },
       React.createElement("div", { className: "flex items-center gap-3" },
         React.createElement("h1", { className: "text-lg font-semibold" }, "Muster"),
-        React.createElement("span", { className: "text-xs text-muted-foreground" }, "air-traffic control for delegated subagent fleets"),
+        React.createElement("span", { className: "text-xs text-muted-foreground" }, "see what your AI helpers are actually doing"),
         React.createElement("span", { className: "flex-1" }),
         alarm > 0 ? React.createElement("span", { className: "rounded bg-amber-500/15 px-2 py-0.5 text-xs text-amber-400" }, "needs attention") : null
       ),
