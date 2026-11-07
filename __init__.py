@@ -66,13 +66,22 @@ def register(ctx: Any) -> None:
         _REGISTERED.clear()
 
     ledger = _open_ledger(ctx)
-    # reconcile only when this is a NEW process. A hot reload inside a live
-    # gateway must not mark still-running workers as gone.
-    import uuid as _uuid
-    proc_token = globals().setdefault("_PROC_TOKEN", _uuid.uuid4().hex)
-    if ledger.get_meta("proc_token") != proc_token:
+    # Reconcile only when the process that last owned the ledger is really
+    # gone. A stored pid that is still alive means a hot reload or a second
+    # registration in the same gateway — live workers stay live.
+    import os as _os
+    my_pid = str(_os.getpid())
+    stored_pid = ledger.get_meta("owner_pid")
+    other_alive = False
+    if stored_pid and stored_pid != my_pid:
+        try:
+            _os.kill(int(stored_pid), 0)  # signal 0 = existence check
+            other_alive = True            # another live process owns the fleet
+        except (ProcessLookupError, ValueError, PermissionError):
+            other_alive = False
+    if not other_alive:
         ledger.reconcile_lost()
-        ledger.set_meta("proc_token", proc_token)
+        ledger.set_meta("owner_pid", my_pid)
 
     def get_config(key: str, default: Any = None) -> Any:
         try:

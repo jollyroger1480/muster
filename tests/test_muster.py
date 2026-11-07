@@ -601,6 +601,38 @@ def test_board_contract_matches_the_uis(ledger):
         assert key in row
 
 
+def test_failing_on_repeat_visible_at_third_death(ctx):
+    """A job that died 3 times must read failing-on-repeat WITHOUT a 4th
+    attempt starting (grok arch review: the alarm fired on next start only)."""
+    muster.register(ctx)
+    ops = muster._REGISTERED[0]["ops"]
+    goal = "flaky deploy check"
+    for i in range(3):
+        ctx.hooks["subagent_start"](parent_session_id="p1", child_session_id=f"fr{i}",
+                                    child_subagent_id=f"sf{i}", child_role="leaf", child_goal=goal)
+        ctx.hooks["subagent_stop"](parent_session_id="p1", child_session_id=f"fr{i}",
+                                   child_role="leaf", status="failed")
+    board = ops.ledger.board()
+    row = next(f for f in board["flights"] if f.get("goal") == goal)
+    assert row["requeue_count"] >= 3, "third death must surface the count"
+    compact = muster_fleet_compact(board)
+    crow = next(f for f in compact["flights"] if f["goal"] == goal)
+    assert crow["requeue_count"] >= 3
+
+
+def test_chip_lost_scoped_to_24h(ledger):
+    """Last month's graveyard must not haunt the chip forever."""
+    old = time.time() - 40 * 86400
+    fid_old = ledger.record_flight({"state": "RUNNING", "child_session_id": "ancient", "goal": "old"})
+    ledger.update_flight(fid_old, {"state": "LOST", "ended_at": old, "updated_at": old})
+    ledger.record_flight({"state": "RUNNING", "child_session_id": "fresh", "goal": "new job"})
+    ledger.reconcile_lost()
+    board = ledger.board()
+    chip = analysis.chip_counts(board)
+    assert board["lost_24h"] == 1, "only the fresh crash counts"
+    assert chip["lost"] == 1
+
+
 def test_pending_muster_rows_age_out(ctx):
     """A muster launch whose start never arrives stops ghosting the run count."""
     service = FakeService()

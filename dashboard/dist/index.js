@@ -137,7 +137,7 @@
     const serviceAvailable = !board || board.service_available !== false;
     const active = flights.filter(function (f) { return LIVE.has(f.state) || f.state === "LOST"; });
     const recent = flights.filter(function (f) { return !LIVE.has(f.state) && f.state !== "LOST"; }).slice(0, 16);
-    const alarm = (counts.STALLED || 0) + (counts.SPINNING || 0) + (counts.LOST || 0);
+    const alarm = (counts.stall || 0) + (counts.spin || 0) + (counts.lost || 0);
 
     return React.createElement("div", { className: "flex flex-col gap-4 p-4 max-w-3xl mx-auto" },
       React.createElement("div", { className: "flex items-center gap-3" },
@@ -147,10 +147,10 @@
         alarm > 0 ? React.createElement("span", { className: "rounded bg-amber-500/15 px-2 py-0.5 text-xs text-amber-400" }, "needs attention") : null
       ),
       React.createElement("div", { className: "flex gap-4 text-xs text-muted-foreground" },
-        React.createElement("span", null, "run " + ((counts.PENDING || 0) + (counts.STARTING || 0) + (counts.RUNNING || 0) + (counts.SPINNING || 0))),
-        React.createElement("span", null, "stalled " + (counts.STALLED || 0)),
-        React.createElement("span", null, "spinning " + (counts.SPINNING || 0)),
-        React.createElement("span", null, "lost " + (counts.LOST || 0)),
+        React.createElement("span", null, "working " + (counts.run || 0)),
+        React.createElement("span", null, "stuck " + (counts.stall || 0)),
+        React.createElement("span", null, "failing " + (counts.spin || 0)),
+        React.createElement("span", null, "gone " + (counts.lost || 0)),
         React.createElement("span", null, "requeues 1h " + (board ? board.requeues_1h : 0))
       ),
       err ? React.createElement("div", { className: "rounded border border-red-500/30 px-2 py-1.5 text-xs text-red-400" }, "backend unavailable: " + err) : null,

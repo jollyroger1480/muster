@@ -493,16 +493,24 @@ class Ledger:
                     "ORDER BY COALESCE(last_event_at, updated_at) DESC LIMIT 40"
                 )
             ]
-            # refresh spin counts for live rows so the board is current even
-            # without a fresh start event.
+            # refresh repeat-failure counts from the window so the board is
+            # current even without a fresh start event. Terminal rows show it
+            # too: a job that died 3 times must read as failing-on-repeat
+            # without waiting for a 4th attempt.
             for flight in flights:
-                if flight.get("state") in ("RUNNING", "STALLED", "SPINNING") and flight.get("batch_key"):
+                if flight.get("batch_key"):
                     flight["requeue_count"] = self.count_requeues(
                         conn, flight["batch_key"], spin_window_seconds
                     )
             requeues_1h = int(conn.execute(
                 "SELECT COUNT(*) FROM requeues WHERE at >= :cutoff",
                 {"cutoff": now - 3600.0},
+            ).fetchone()[0])
+            # gone-within-24h: last month's graveyard must not haunt the chip
+            lost_24h = int(conn.execute(
+                "SELECT COUNT(*) FROM flights WHERE kind = 'flight' AND state = 'LOST' "
+                "AND COALESCE(ended_at, updated_at, started_at) >= :cutoff",
+                {"cutoff": now - 86400.0},
             ).fetchone()[0])
             return {
                 "generated_at": now,
@@ -511,6 +519,7 @@ class Ledger:
                 "requeues_1h": requeues_1h,
                 "flights": flights,
                 "aux": aux,
+                "lost_24h": lost_24h,
             }
 
         return self._read(_op) or {

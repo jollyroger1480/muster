@@ -97,9 +97,14 @@ def chip_counts(board: dict[str, Any]) -> dict[str, int]:
     """Aggregate a board() payload into the four numbers the chip shows.
     SPINNING is reported only as `spin` — never also counted as working."""
     counts = board.get("counts") or {}
+    # gone is scoped to the last 24h when the board provides it — last
+    # month's graveyard must not haunt the chip forever.
+    lost = board.get("lost_24h")
+    if lost is None:
+        lost = counts.get("LOST", 0)
     return {
         "run": sum(counts.get(s, 0) for s in ("PENDING", "STARTING", "RUNNING")),
         "stall": counts.get("STALLED", 0),
-        "lost": counts.get("LOST", 0),
+        "lost": lost,
         "spin": counts.get("SPINNING", 0),
     }

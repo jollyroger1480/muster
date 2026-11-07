@@ -137,7 +137,7 @@ function FlightRow({ flight, serviceAvailable, onAction, showGoals }) {
         jsx('span', { className: 'text-[0.6875rem] text-(--ui-text-tertiary) font-mono', children: flight.short_id }),
         jsx('span', { className: 'text-[0.6875rem] text-(--ui-text-tertiary)', children: flight.role || '' }),
         jsx('span', { className: 'flex-1' }),
-        jsx('span', { className: 'text-[0.6875rem] text-(--ui-text-tertiary)', title: 'age of last API/tool event', children: `${ageOf(flight.last_event_age)} quiet` }),
+        jsx('span', { className: 'text-[0.6875rem] text-(--ui-text-tertiary)', title: "time since the worker\u2019s last step", children: flight.tool_in_flight ? `in ${flight.tool_in_flight}` : `${ageOf(flight.last_event_age)} quiet` }),
       ] }),
       showGoals && flight.goal ? jsx('div', { className: 'text-xs text-(--ui-text-secondary) leading-snug break-words', children: flight.goal }) : null,
       jsxs('div', { className: 'flex items-center gap-2 text-[0.625rem] text-(--ui-text-tertiary)', children: [
@@ -145,7 +145,6 @@ function FlightRow({ flight, serviceAvailable, onAction, showGoals }) {
         jsx('span', { children: `${flight.api_calls || 0} api` }),
         jsx('span', { children: `${fmtTokens(flight.prompt_tokens)}→${fmtTokens(flight.completion_tokens)} tok` }),
         (flight.requeue_count || 0) >= 2 ? jsx('span', { style: { color: C.bad }, className: 'font-medium', children: `failed ${flight.requeue_count}×` }) : null,
-        flight.tool_in_flight ? jsx('span', { style: { color: C.info }, children: `in ${flight.tool_in_flight}` }) : null,
         flight.source && flight.source !== 'muster' ? jsx('span', { className: 'ml-auto', children: flight.source === 'observed' ? 'hermes-spawned · read-only' : flight.source }) : null,
       ] }),
       flight.state === 'LOST' ? jsx('div', { className: 'text-[0.625rem] text-(--ui-text-tertiary)', children: 'hermes crashed before this finished — found at restart' }) : null,
@@ -206,7 +205,7 @@ function FleetPane({ ctx }) {
     }
   }, [ctx, load])
 
-  const counts = (board && board.chip) || {}
+  const chip = (board && board.chip) || {}
   const serviceAvailable = !board || board.service_available !== false
   const flights = (board && board.flights) || []
   const showGoals = !board || board.show_goals !== false
@@ -218,7 +217,7 @@ function FleetPane({ ctx }) {
       jsx('span', { className: 'text-xs font-semibold tracking-wide text-(--ui-text-secondary)', children: 'MUSTER' }),
       jsx('span', { className: 'text-[0.625rem] text-(--ui-text-tertiary)', children: 'who\u2019s still running' }),
       jsx('span', { className: 'flex-1' }),
-      (counts.STALLED || 0) + (counts.SPINNING || 0) + (counts.LOST || 0) > 0
+      ((chip.stall || 0) + (chip.spin || 0) + (chip.lost || 0)) > 0
         ? jsx('span', { className: 'rounded px-1.5 py-0.5 text-[0.625rem]', style: { color: C.warn, background: mix(C.warn, 15) }, children: 'needs attention' })
         : null,
     ] }),

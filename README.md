@@ -27,25 +27,27 @@ lets you stop the stuck ones with a click.
 The catalog has good watchers and a roster-steerer. Muster is the only one that
 combines a **durable fleet ledger** with **derived health states** and **actions**:
 
-| | agent-station · protean-subagent-viewer | hermes-teammates | core `/agents` stall monitor | **muster** |
+| | agent-station · protean-subagent-viewer | hermes-teammates | core Ctrl+T viewer & `/agents` | **muster** |
 |---|---|---|---|---|
-| Shows delegated children | ✔ (focused chat) | ✔ (its own roster) | progress bar | ✔ **every** child, fleet-wide |
-| stuck vs working | read-only statuses (running/done/interrupted/errored) | — | interrupts on no progress (in-memory, per-run) | ✔ durable badge, in-flight-tool exempt, self-healing |
-| "failing on repeat" alarm | ✗ | ✗ | ✗ | ✔ repeat-failure count per job |
-| **LOST after gateway death** | ✗ (rows vanish or lie) | ✗ | ✗ | ✔ reconciled on boot, with the reason |
-| Cancel/steer from the view | ✗ ("never steers, interrupts, or spawns") | ✔ — but only children *it* launched | parent-side interrupt | ✔ muster children; observed rows honestly read-only |
-| Kanban worker-exit strike feed | ✗ | ✗ | ✗ | ✔ |
-| Cross-process durable ledger | ✗ | ✗ | ✗ | ✔ sqlite, pane/dashboard/chat agree |
+| Shows delegated children | ✔ (focused chat) | ✔ (its own roster) | ✔ per conversation, live + finished | ✔ **every** child, fleet-wide |
+| stuck / failing-on-repeat / gone badges | read-only statuses (running/done/interrupted/errored) | — | live vs finished only | ✔ durable, in-flight-tool exempt, self-healing |
+| **survives a gateway crash** | ✗ | ✗ | ✗ — rows die with the process | ✔ reconciled on boot, with the reason |
+| Stop/Message from the view | ✗ ("never steers, interrupts, or spawns") | ✔ — but only workers *it* launched | ✔ in the CLI monitor | ✔ muster workers, from pane/dashboard/chat |
+| Works outside the CLI (Desktop pane, dashboard, WhatsApp/Telegram/Slack via `/muster`) | Desktop only | Desktop | classic CLI | ✔ all of them |
+| Kanban worker-exit feed | ✗ | ✗ | ✗ | ✔ |
+| Cross-process durable ledger | ✗ | ✗ | ✗ | ✔ sqlite, every surface agrees |
 
-Core already interrupts quiet background children (`/agents` shows
-`stalling · no progress … — interrupting`) — muster does not replace that; it
-adds what issue
-[#149110](https://github.com/NousResearch/hermes-agent/issues/149110) asks for
-and none of the above provide: the durable record (a dead host emits no
-`subagent_stop`), the derived states, the repeat-failure alarm, and fleet-level actions.
-Different lineage from the plugins above; Stop/Message uses the same public
-lifecycle API hermes-teammates uses, applied to a fleet ledger rather than a
-predefined roster.
+Core's monitoring keeps getting better — the Ctrl+T viewer now reads finished
+subagents' runs and steers them from the monitor, and `/agents` interrupts
+quiet children mid-run. Muster is the layer core's own issue
+[#149110](https://github.com/NousResearch/hermes-agent/issues/149110) (still
+open) asks for: **what survives the crash** (a dead host emits no
+`subagent_stop` — muster reconciles to gone on boot), the **stuck /
+failing-on-repeat / gone** health states, and the same fleet on **every
+surface** — Desktop pane, web dashboard, and any chat platform. Muster reads
+the same public hooks and drives the same public lifecycle API; if core grows
+a native stuck/gone ledger later, muster's rows remain a display layer over
+it and delete cleanly.
 
 ## What you get
 
@@ -53,7 +55,7 @@ predefined roster.
 |---|---|
 | **Desktop pane** | Live fleet board: every child with state, role, goal, last-event age, tool/API counts, tokens; **Stop** and **Message** buttons on muster-launched children |
 | **Status-bar chip** | `muster · 2 working · 1 stuck` — turns amber the moment anything needs attention |
-| **Dashboard tab** | The same board in the web dashboard (read + act) |
+| **Dashboard tab** | The same board in the web dashboard (same process as the agent = read + act; a split deployment is read-only with a clear note) |
 | **`/muster`** | Fleet table in any chat, including messaging platforms; `/muster stop <id>` and `/muster note <id> <text>` act on muster workers (`cancel`/`steer` still work as aliases) |
 | **`muster_status` tool** | Fleet JSON for the agent itself, so it can report health honestly |
 | **`muster_fanout` tool** | Launch background workers through the public subagent lifecycle API — those workers get real Stop/Message because muster keeps their handles |
@@ -67,9 +69,12 @@ Every worker gets one plain answer:
   A badge, never an auto-kill; it clears itself the moment work resumes.
 - **failing on repeat** — the same job failed `spin_threshold` times (default 3)
   within `spin_window_seconds` (default 30 minutes). Hermes treats each retry
-  as no big deal; muster keeps count so you don't have to.
+  as no big deal; muster keeps count — visible at the third failure, no
+  fourth attempt required.
 - **gone** — hermes crashed before the worker finished. Found and marked at the
-  next start-up. Its work needs a re-run decision.
+  next start-up (only when the previous process is really dead — a hot reload
+  never marks live workers gone). Its work needs a re-run decision. The chip
+  counts the last 24 hours of gone, not the graveyard.
 - **done / failed / stopped** — finished states. "Stopped" means someone pressed
   Stop (it finishes its current step, then quits safely).
 
@@ -90,13 +95,14 @@ Every worker gets one plain answer:
 
 - **No network.** Muster never opens a socket, never phones home, no
   telemetry, opt-in or otherwise.
-- **No dependencies.** Python stdlib only (`sqlite3`, `threading`, `queue`,
-  `json`, `hashlib`). Nothing to consent to at install.
+- **Nothing to install.** The agent half is Python stdlib only (`sqlite3`,
+  `threading`, `queue`, `json`, `hashlib`). The dashboard half uses the
+  FastAPI install Hermes already ships — no extra pip packages.
 - **No secrets.** No `requires_env`, no OAuth, no credential reads of any kind.
-- **Reads outside its own data: none.** The ledger lives at
-  `<HERMES_HOME>/plugin-data/muster/fleet.sqlite` (created on first run) and
-  nothing else on disk is touched. The dashboard half reads that same file
-  plus Hermes' own config to pick up `plugins.entries.muster.settings`.
+- **Reads outside its own data: only Hermes' config.** The ledger lives at
+  `<HERMES_HOME>/plugin-data/muster/fleet.sqlite` (created on first run).
+  The dashboard half reads that same file and Hermes' own config to pick up
+  `plugins.entries.muster.settings`. Nothing else on disk is touched.
 - **What is stored:** ids, roles, goals **truncated to 80 chars**, models,
   providers, timestamps, counters, token totals, terminal summaries truncated
   to 200 chars, and (for muster launches only) the subagent-lifecycle handle.
@@ -151,7 +157,7 @@ hermes plugins install muster
 ## Development
 
 ```bash
-python -m pytest tests/ -q        # 29 unit tests (incl. review regressions), no Hermes needed
+python -m pytest tests/ -q        # 30 unit tests (incl. review regressions), no Hermes needed
 ```
 
 License: MIT.
