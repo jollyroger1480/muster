@@ -210,6 +210,8 @@ class FleetOps:
 
     def digest(self, _raw: str = "") -> str:
         data = self.ledger.digest_data(self.spin_window_seconds, self.spin_threshold)
+        if not data:
+            return "muster: the ledger is busy — try again in a second."
         c = self.ledger.board(limit=1, spin_window_seconds=self.spin_window_seconds).get("counts", {})
         from .analysis import chip_counts
         chip = chip_counts({"counts": c, "lost_24h": None})
@@ -219,8 +221,10 @@ class FleetOps:
             parts.append(f"{chip['run']} working")
         if chip["stall"]:
             parts.append(f"{chip['stall']} stuck")
-        if chip["spin"]:
-            parts.append(f"{chip['spin']} failing on repeat")
+        # failed-on-repeat batches are decisions even when nothing is live
+        failing = data.get("hot_batches", 0)
+        if failing:
+            parts.append(f"{failing} failing on repeat")
         if chip["lost"]:
             parts.append(f"{chip['lost']} gone")
         lines.append("fleet: " + (", ".join(parts) if parts else "all quiet"))
@@ -233,7 +237,8 @@ class FleetOps:
         if needs:
             lines.append("")
             lines.append("needs a decision:")
-            word = {"STALLED": "stuck", "SPINNING": "failing on repeat", "LOST": "gone"}
+            word = {"STALLED": "stuck", "SPINNING": "failing on repeat",
+                    "LOST": "gone", "FAILED": "failed on repeat"}
             for f in needs[:5]:
                 state = f.get("state", "?")
                 short = (f.get("id") or "")[:8]
@@ -267,7 +272,7 @@ class FleetOps:
         if verb in ("help", "h", "?"):
             return (
                 "muster — who's still running?\n"
-                "  /muster                      who's working, stuck or gone\n"
+                "  /muster                      who's working, stuck, failing or gone\n"
                 "  /muster stop <id>            stop one of your workers\n"
                 "  /muster note <id> <message>  send a running worker a message\n"
                 "  /muster-digest               the foreman's report (status, spend, decisions)\n"

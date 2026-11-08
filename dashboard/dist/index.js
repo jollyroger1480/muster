@@ -82,7 +82,7 @@
         React.createElement("span", { className: "text-[0.6875rem] text-muted-foreground font-mono" }, f.short_id),
         React.createElement("span", { className: "text-[0.6875rem] text-muted-foreground" }, f.role || ""),
         React.createElement("span", { className: "flex-1" }),
-        React.createElement("span", { className: "text-[0.6875rem] text-muted-foreground" }, ageOf(f.last_event_age) + " quiet")
+        React.createElement("span", { className: "text-[0.6875rem] text-muted-foreground" }, f.tool_in_flight ? ("in " + f.tool_in_flight) : (ageOf(f.last_event_age) + " quiet"))
       ),
       props.showGoals && f.goal
         ? React.createElement("div", { className: "text-xs leading-snug break-words" }, f.goal)
@@ -137,7 +137,7 @@
     const showGoals = !board || board.show_goals !== false;
     const serviceAvailable = !board || board.service_available !== false;
     const active = flights.filter(function (f) { return LIVE.has(f.state) || f.state === "LOST"; });
-    const recent = flights.filter(function (f) { return !LIVE.has(f.state) && f.state !== "LOST"; }).slice(0, 16);
+    const recent = flights.filter(function (f) { return !LIVE.has(f.state) && f.state !== "LOST"; }).slice(0, 12);
     const alarm = (counts.stall || 0) + (counts.spin || 0) + (counts.lost || 0);
 
     return React.createElement("div", { className: "flex flex-col gap-4 p-4 max-w-3xl mx-auto" },

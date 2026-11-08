@@ -3,7 +3,10 @@ version: 1.0.0
 description: >-
   See what your AI helpers are actually doing. Every worker hermes starts shows
   up live in one pane: working, stuck (silent too long), failing on repeat, or
-  gone (hermes crashed). Stop a stuck one or send it a message with one click.
+  gone (hermes crashed). Stop a stuck one or send it a message with one click. /muster-digest
+  reports status, spend and the decisions you need; Fleet watch + Morning
+  report blueprints check the fleet on your schedule and speak up only when
+  something needs you. Cost shows at your own token rates.
   Start your own helpers with muster_fanout. No network, no setup, no deps.
 manifest_version: 2
 api_version: 1

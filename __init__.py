@@ -431,7 +431,7 @@ def register(ctx: Any) -> None:
             emoji="📋",
         )
         ctx.register_command("muster", ops.command,
-                             description="Who's still running? (working / stuck / gone, with stop + note)",
+                             description="Who's still running? (working / stuck / failing on repeat / gone, with stop + note)",
                              args_hint="[stop|note <id> ...]")
         try:
             ctx.register_command("muster-digest", ops.digest,
@@ -446,7 +446,7 @@ def register(ctx: Any) -> None:
                 title="Muster fleet watch",
                 description="Check every worker hermes is running; only speak up when one is stuck, failing on repeat, or gone.",
                 category="general",
-                schedule_template="{interval_min} * * * *",
+                schedule_template="*/{interval_min} * * * *",
                 prompt_template=("Check the muster fleet now with the muster_status tool. "
                                  "If a worker is stuck, failing on repeat, or gone, tell me in one short line per worker "
                                  "with its short id and what to do (stop it, re-run it, or leave it). "
