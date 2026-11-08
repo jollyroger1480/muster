@@ -163,7 +163,15 @@ hermes plugins install muster
 ## Development
 
 ```bash
-python -m pytest tests/ -q        # 33 unit tests (incl. review regressions), no Hermes needed
+python -m pytest tests/ -q        # 34 unit tests, no Hermes needed
 ```
+
+## Tip jar
+
+Buccaneer Salvage, Carbondale, PA. If muster saved a fleet while you were out, the jar is open.
+
+- Cash App: [`$jollyroger1480`](https://cash.app/$jollyroger1480)
+- X: [@jollyroger1480](https://x.com/jollyroger1480)
+- YouTube: [@BuccaneerSalvage](https://www.youtube.com/@BuccaneerSalvage?sub_confirmation=1)
 
 License: MIT.
