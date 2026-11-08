@@ -437,22 +437,18 @@ class Ledger:
                 "SELECT COALESCE(SUM(completion_tokens), 0) FROM flights WHERE kind = 'flight'").fetchone()[0])
             cutoff = time.time() - max(1.0, float(spin_window_seconds))
             needs = [dict(r) for r in conn.execute(
-                "SELECT * FROM flights WHERE kind = 'flight' AND ("
-                "state IN ('STALLED','SPINNING','LOST') OR "
-                "(state = 'FAILED' AND batch_key IN (SELECT batch_key FROM requeues "
-                "WHERE at >= :cutoff GROUP BY batch_key HAVING COUNT(*) >= :thr))) "
+                "SELECT * FROM flights WHERE kind = 'flight' "
+                "AND state IN ('STALLED','SPINNING','LOST') "
                 "ORDER BY CASE state WHEN 'LOST' THEN 0 WHEN 'SPINNING' THEN 1 "
                 "WHEN 'STALLED' THEN 2 ELSE 3 END, "
-                "COALESCE(last_event_at, started_at, updated_at) DESC LIMIT 12",
-                {"cutoff": cutoff, "thr": max(1, int(spin_threshold))})]
-            # one NEWEST row per hot batch: three deaths of the same job are one
-            # decision, not three lines. Keep only rows that are the newest of
-            # their batch (LOST rows have unique batch keys, so they survive).
-            keep = {r["batch_key"]: r["id"] for r in needs if r.get("batch_key")}
-            needs = [r for r in needs
-                     if not r.get("batch_key") or keep.get(r["batch_key"]) == r["id"]]
-            hot_batches = len({r["batch_key"] for r in needs
-                               if r.get("state") == "FAILED" and r.get("batch_key")})
+                "COALESCE(last_event_at, started_at, updated_at) DESC LIMIT 12")]
+            # failed-on-repeat is a header count, not three identical decision lines
+            hot_batches = int(conn.execute(
+                "SELECT COUNT(*) FROM ("
+                "SELECT batch_key FROM requeues WHERE at >= :cutoff "
+                "GROUP BY batch_key HAVING COUNT(*) >= :thr)",
+                {"cutoff": cutoff, "thr": max(1, int(spin_threshold))},
+            ).fetchone()[0])
             return {"counts": counts, "tokens_in": tin, "tokens_out": tout,
                     "needs": needs, "hot_batches": hot_batches}
 
