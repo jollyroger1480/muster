@@ -154,10 +154,14 @@ Every worker gets one plain answer:
 ## Install
 
 ```bash
+# works today, before the catalog PR is merged
+hermes plugins install jollyroger1480/muster
+
+# after the catalog listing merges
 hermes plugins install muster
 ```
 
-(From source: drop the `muster/` folder into `$HERMES_HOME/plugins/` and run
+(From a local checkout: drop the `muster/` folder into `$HERMES_HOME/plugins/` and run
 `hermes plugins validate ~/.hermes/plugins/muster --install-deps`.)
 
 ## Development
