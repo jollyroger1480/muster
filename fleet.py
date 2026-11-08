@@ -77,6 +77,13 @@ class FleetOps:
         except (TypeError, ValueError):
             return 0.0
 
+    @property
+    def cost_ceiling_usd(self) -> float:
+        try:
+            return max(0.0, float(self._cfg("cost_ceiling_usd", 0) or 0))
+        except (TypeError, ValueError):
+            return 0.0
+
     def cost_usd(self, prompt_tokens: int, completion_tokens: int) -> Optional[float]:
         """Worker cost at the USER'S OWN rates (settings). 0/absent rates mean
         muster never invents a price — it shows tokens only."""
@@ -233,6 +240,24 @@ class FleetOps:
         lines.append(f"tokens: {data['tokens_in']:,} in / {data['tokens_out']:,} out"
                      + (f" (~${cost:.2f} at your rates)" if cost is not None else ""))
 
+        ceiling = self.cost_ceiling_usd
+        if ceiling > 0 and data.get("tokens_in") is not None:
+            board = self.ledger.board(limit=self.board_rows, spin_window_seconds=self.spin_window_seconds)
+            overs = []
+            for f in board.get("flights", []):
+                cost = self.cost_usd(f.get("prompt_tokens", 0), f.get("completion_tokens", 0))
+                if cost is not None and cost > ceiling:
+                    overs.append((cost, f))
+            overs.sort(reverse=True)
+            if overs:
+                lines.append("")
+                lines.append(f"over budget (ceiling ${ceiling:.2f}):")
+                for cost, f in overs[:5]:
+                    lines.append(f"  - ${cost:.2f}: \u201c{(f.get('goal') or '')[:48]}\u201d [{(f.get('id') or '')[:8]}]"
+                                 + (" \u2014 stop it? /muster stop " + (f.get('id') or '')[:8] if f.get('handle_json') else ""))
+            if len(overs) > 5:
+                lines.append(f"  \u2026 and {len(overs) - 5} more")
+
         needs = data["needs"]
         if needs:
             lines.append("")
@@ -362,6 +387,8 @@ def _compact_board(board: dict[str, Any], *, show_goals: bool, cost_fn=None) -> 
         if cost_fn is not None:
             cost = cost_fn(f.get("prompt_tokens", 0), f.get("completion_tokens", 0))
             flights[-1]["cost_usd"] = round(cost, 4) if cost is not None else None
+            ceiling = getattr(getattr(cost_fn, "__self__", None), "cost_ceiling_usd", 0)
+            flights[-1]["over_budget"] = bool(ceiling > 0 and cost is not None and cost > ceiling)
     aux = []
     for a in board.get("aux", []):
         aux.append({
@@ -381,6 +408,7 @@ def _compact_board(board: dict[str, Any], *, show_goals: bool, cost_fn=None) -> 
         total = cost_fn(sum(f.get("prompt_tokens", 0) for f in board.get("flights", [])),
                         sum(f.get("completion_tokens", 0) for f in board.get("flights", [])))
         out["cost_usd_total"] = round(total, 4) if total is not None else None
+    out["cost_ceiling_usd"] = getattr(cost_fn, "__self__", None) and getattr(cost_fn.__self__, "cost_ceiling_usd", 0.0) or 0.0
     return out
 
 

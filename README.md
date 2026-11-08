@@ -34,6 +34,8 @@ combines a **durable fleet ledger** with **derived health states** and **actions
 | **survives a gateway crash** | ✗ | ✗ | ✗ — rows die with the process | ✔ reconciled on boot, with the reason |
 | Stop/Message from the view | ✗ ("never steers, interrupts, or spawns") | ✔ — but only workers *it* launched | ✔ in the CLI monitor | ✔ muster workers, from pane/dashboard/chat |
 | Works outside the CLI (Desktop pane, dashboard, WhatsApp/Telegram/Slack via `/muster`) | Desktop only | Desktop | classic CLI | ✔ all of them |
+| Fleet cost at your rates + per-worker budget flag | ✗ | ✗ | ✗ | ✔ every worker, digest + watch |
+| Object | the focused chat's children | a roster it defines | this conversation's workers | ✔ the whole fleet |
 | Kanban worker-exit feed | ✗ | ✗ | ✗ | ✔ |
 | Cross-process durable ledger | ✗ | ✗ | ✗ | ✔ sqlite, every surface agrees |
 
@@ -138,6 +140,7 @@ Every worker gets one plain answer:
 | `show_goals` | `true` | Show each worker's job description in the pane |
 | `board_rows` | `120` | Rows returned by the board API and `/muster` |
 | `price_input_per_mtok` / `price_output_per_mtok` | `0` | **Your own** blended token rates; set both and muster shows what each worker (and the fleet) costs. Leave 0 and it shows tokens only — muster never invents a price |
+| `cost_ceiling_usd` | `0` | Per-worker spend ceiling; muster flags **over budget** on the row, in the digest and in Fleet watch. Muster flags it — only you press Stop |
 | `chip_enabled` | `true` | Status-bar chip in the Desktop app |
 
 ## Compatibility

@@ -685,6 +685,33 @@ def test_cost_and_digest(ctx):
     assert "nothing needs you" not in text
 
 
+def test_cost_ceiling_flags_over_budget(ctx):
+    """A worker above the user's per-worker ceiling is flagged on the row and
+    in the digest — muster flags, never auto-stops."""
+    muster.register(ctx)
+    ops = muster._REGISTERED[0]["ops"]
+    ctx.hooks["subagent_start"](parent_session_id="p1", child_session_id="c-big",
+                                child_subagent_id="sbig", child_role="leaf", child_goal="big spender")
+    ctx.hooks["post_api_request"](session_id="c-big",
+                                  usage={"prompt_tokens": 500_000, "completion_tokens": 100_000})
+    time.sleep(0.2)
+    ops.ctx.settings["price_input_per_mtok"] = 3.0
+    ops.ctx.settings["price_output_per_mtok"] = 15.0
+    ops.ctx.settings["cost_ceiling_usd"] = 1.0  # row cost is $3.0 -> over
+    board = ops.ledger.board()
+    compact = muster_fleet_compact(board, cost_fn=ops.cost_usd)
+    assert compact["cost_ceiling_usd"] == 1.0
+    row = compact["flights"][0]
+    assert row["cost_usd"] is not None
+    # digest lists it under over budget
+    text = ops.digest("")
+    assert "over budget" in text
+    # ceiling off -> no flag anywhere
+    ops.ctx.settings["cost_ceiling_usd"] = 0
+    text = ops.digest("")
+    assert "over budget" not in text
+
+
 def test_pending_muster_rows_age_out(ctx):
     """A muster launch whose start never arrives stops ghosting the run count."""
     service = FakeService()

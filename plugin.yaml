@@ -56,6 +56,13 @@ config_schema:
     default: 0
     label: Your output price ($ per 1M tokens)
     description: Your blended output rate. Both prices must be set for costs to show.
+  cost_ceiling_usd:
+    type: float
+    default: 0
+    label: Per-worker cost ceiling ($, 0 = off)
+    description: Set a ceiling and muster flags any worker whose spend crosses
+      it — on the row, in the digest, and in Fleet watch. Muster flags it;
+      only you (or the agent you asked) press Stop.
   chip_enabled:
     type: bool
     default: true

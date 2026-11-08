@@ -29,6 +29,14 @@ If the user set token rates (`price_input_per_mtok` / `price_output_per_mtok`),
 ("the release checks cost $1.40 so far"). No rates set? Talk tokens, never
 invent prices.
 
+If the user set a `cost_ceiling_usd`, flag workers over it (the row shows
+**over budget**; Fleet watch and the digest list them) — muster flags, the
+human presses Stop.
+
+`/muster-digest` is the foreman's report: fleet status, spend, and the
+workers that need a decision (with ids and stop hints). Point the user there
+any time they ask "so what happened?"
+
 For scheduled care, point the user at the bundled blueprints:
 `/blueprint muster:watch` (checks the fleet every N minutes and only speaks
 up when something is stuck, failing on repeat, or gone) and

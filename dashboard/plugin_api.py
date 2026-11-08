@@ -81,6 +81,7 @@ def _load_config() -> dict[str, Any]:
         "chip_enabled": True,
         "price_input_per_mtok": 0,
         "price_output_per_mtok": 0,
+        "cost_ceiling_usd": 0,
     }
     out = dict(defaults)
     for key in defaults:
@@ -161,6 +162,8 @@ async def board() -> dict[str, Any]:
             return (prompt_tokens / 1e6) * pin + (completion_tokens / 1e6) * pout
 
         data = fleet_mod._compact_board(raw, show_goals=cfg["show_goals"], cost_fn=_cost)
+        if "cost_ceiling_usd" not in data:
+            data["cost_ceiling_usd"] = cfg.get("cost_ceiling_usd", 0) or 0
     except Exception as exc:  # noqa: BLE001
         logger.debug("muster: board compaction failed", exc_info=True)
         return {"generated_at": 0, "counts": {}, "live_total": 0, "requeues_1h": 0,

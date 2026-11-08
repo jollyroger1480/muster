@@ -144,7 +144,7 @@ function FlightRow({ flight, serviceAvailable, onAction, showGoals }) {
         jsx('span', { children: `${flight.tool_calls || 0} tools` }),
         jsx('span', { children: `${flight.api_calls || 0} api` }),
         jsx('span', { children: `${fmtTokens(flight.prompt_tokens)}→${fmtTokens(flight.completion_tokens)} tok` }),
-        flight.cost_usd != null ? jsx('span', { style: { color: C.dim }, children: `$${flight.cost_usd < 0.01 && flight.cost_usd > 0 ? flight.cost_usd.toFixed(4) : flight.cost_usd.toFixed(2)}` }) : null,
+        flight.cost_usd != null ? jsx('span', { style: { color: flight.over_budget ? C.bad : C.dim, fontWeight: flight.over_budget ? 600 : 400 }, children: `$${flight.cost_usd < 0.01 && flight.cost_usd > 0 ? flight.cost_usd.toFixed(4) : flight.cost_usd.toFixed(2)}${flight.over_budget ? ' ⚠ over budget' : ''}` }) : null,
         (flight.requeue_count || 0) >= 2 ? jsx('span', { style: { color: C.bad }, className: 'font-medium', children: `failed ${flight.requeue_count}×` }) : null,
         flight.source && flight.source !== 'muster' ? jsx('span', { className: 'ml-auto', children: flight.source === 'observed' ? 'hermes-spawned · read-only' : flight.source }) : null,
       ] }),
