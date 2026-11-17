@@ -1,5 +1,7 @@
 # Muster
 
+![Dusk harbour scene from a ship's deck: a row of glowing lanterns on a wooden board, most green, one amber and one dark, like a roll call](docs/banner.webp)
+
 **You gave your AI helpers some jobs. Muster shows you who's actually
 working, who's stuck, and who's gone — and lets you stop them with one
 click.**
