@@ -6,6 +6,8 @@ click.**
 
 "Who's still running?" is the whole product.
 
+Free to use. If it saved you time, tips are welcome: [Cash App](https://cash.app/$jollyroger1480) or Bitcoin `bc1qydycnf5pjhez5d0mrgmmumyv2g5nc63mwet89j`. More links at the [bottom](#support-and-links).
+
 ## Why
 
 Two things go wrong with background agents, and hermes can't tell you about
@@ -170,12 +172,14 @@ hermes plugins install muster
 python -m pytest tests/ -q        # 34 unit tests, no Hermes needed
 ```
 
-## Tip jar
+## Support and links
 
-Buccaneer Salvage, Carbondale, PA. If muster saved a fleet while you were out, the jar is open.
+This project is free, and a tip is welcome but never expected.
 
-- Cash App: [`$jollyroger1480`](https://cash.app/$jollyroger1480)
+- Tip (Cash App): [$jollyroger1480](https://cash.app/$jollyroger1480)
+- Bitcoin: `bc1qydycnf5pjhez5d0mrgmmumyv2g5nc63mwet89j`
+- eBay store: [Buccaneer Salvage](https://www.ebay.com/str/buccaneersalvage)
+- YouTube: [@BuccaneerSalvage](https://www.youtube.com/@BuccaneerSalvage)
 - X: [@jollyroger1480](https://x.com/jollyroger1480)
-- YouTube: [@BuccaneerSalvage](https://www.youtube.com/@BuccaneerSalvage?sub_confirmation=1)
 
 License: MIT.
